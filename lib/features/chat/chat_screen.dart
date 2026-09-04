@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/ride_api.dart';
 import '../../core/services/session_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -12,6 +13,7 @@ class ChatScreen extends ConsumerStatefulWidget {
   final String driverInitials;
   final String? otherPhotoUrl;
   final String reqId;
+  final String driverPhone;
 
   const ChatScreen({
     super.key,
@@ -19,6 +21,7 @@ class ChatScreen extends ConsumerStatefulWidget {
     required this.driverInitials,
     this.otherPhotoUrl,
     this.reqId = '',
+    this.driverPhone = '',
   });
 
   @override
@@ -133,6 +136,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             driverName: widget.driverName,
             driverInitials: widget.driverInitials,
             otherPhotoUrl: widget.otherPhotoUrl,
+            driverPhone: widget.driverPhone,
             onBack: () => context.pop(),
           ),
           Expanded(
@@ -369,6 +373,7 @@ class _ChatHeader extends StatelessWidget {
   final String driverName;
   final String driverInitials;
   final String? otherPhotoUrl;
+  final String driverPhone;
   final VoidCallback onBack;
 
   const _ChatHeader({
@@ -376,6 +381,7 @@ class _ChatHeader extends StatelessWidget {
     required this.driverInitials,
     required this.onBack,
     this.otherPhotoUrl,
+    this.driverPhone = '',
   });
 
   @override
@@ -451,7 +457,13 @@ class _ChatHeader extends StatelessWidget {
                 ),
               ),
               GestureDetector(
-                onTap: () {},
+                onTap: () async {
+                  final phone = driverPhone.trim();
+                  if (phone.isEmpty) return;
+                  final formatted = phone.startsWith('+') ? phone : '+$phone';
+                  final uri = Uri.parse('tel:$formatted');
+                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                },
                 child: const Icon(Icons.call_rounded,
                     color: Colors.white, size: 22),
               ),

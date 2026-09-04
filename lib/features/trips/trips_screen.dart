@@ -286,7 +286,8 @@ class _TripCardState extends State<_TripCard> {
   bool get _canTrack =>
       t.message != null && t.status == _TripStatus.active;
 
-  bool get _hasActions => _canWithdraw || _canAcceptReject || _canMessage || _canCancelActive;
+  bool get _canRebook => t.status == _TripStatus.completed && t.destination.isNotEmpty;
+  bool get _hasActions => _canWithdraw || _canAcceptReject || _canMessage || _canCancelActive || _canRebook;
 
   Future<void> _withdraw() async {
     if (_acting) return;
@@ -484,6 +485,17 @@ class _TripCardState extends State<_TripCard> {
                         ),
                       ),
                     ],
+                    if (_canRebook)
+                      Expanded(
+                        child: _Btn(
+                          label: 'Rebook',
+                          color: SRColors.purple700,
+                          onTap: () => context.push('/search', extra: {
+                            'from': t.from.isNotEmpty ? t.from : null,
+                            'to': t.destination,
+                          }),
+                        ),
+                      ),
                   ],
                 ),
             ],

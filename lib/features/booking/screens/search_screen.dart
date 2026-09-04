@@ -49,7 +49,10 @@ class _PlaceSuggestion {
 enum _Field { pickup, destination }
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  final String? initialFrom;
+  final String? initialTo;
+
+  const SearchScreen({super.key, this.initialFrom, this.initialTo});
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -81,12 +84,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    _pickupCtr.text = 'Current location';
+    _pickupCtr.text = widget.initialFrom ?? 'Current location';
+    if (widget.initialTo != null) _destCtr.text = widget.initialTo!;
     _pickupFocus.addListener(_onFocusChange);
     _destFocus.addListener(_onFocusChange);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _destFocus.requestFocus();
-      setState(() => _activeField = _Field.destination);
+      if (widget.initialTo != null && widget.initialFrom != null) {
+        // Both pre-filled — go straight to select drivers
+        _tryConfirm();
+      } else {
+        _destFocus.requestFocus();
+        setState(() => _activeField = _Field.destination);
+      }
     });
     _loadRecents();
   }
