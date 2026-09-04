@@ -9,7 +9,7 @@ workflows:
       cocoapods: default
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.mycompany.streetride
+        bundle_identifier: com.streetrideplus.streetride
     scripts:
       - name: Get Flutter packages
         script: flutter pub get
@@ -25,7 +25,7 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        submit_to_app_store: false
+        submit_to_app_store: true
       email:
         recipients:
           - john.alagbe@aofnfp.org
