@@ -27,6 +27,7 @@ import '../../features/booking/screens/driver_offers_screen.dart';
 import '../../features/booking/screens/live_tracking_screen.dart';
 import '../../features/booking/screens/rate_pay_screen.dart';
 import '../../features/safety/safety_screen.dart';
+import '../../features/safety/trusted_contacts_screen.dart';
 import '../../features/chat/chat_screen.dart';
 
 final appRouter = GoRouter(
@@ -119,7 +120,16 @@ final appRouter = GoRouter(
     ),
 
     // Rider booking flow
-    GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
+    GoRoute(
+      path: '/search',
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>? ?? {};
+        return SearchScreen(
+          initialFrom: extra['from'] as String?,
+          initialTo: extra['to'] as String?,
+        );
+      },
+    ),
     GoRoute(
       path: '/map-picker',
       builder: (_, state) {
@@ -137,6 +147,7 @@ final appRouter = GoRouter(
         return SelectDriversScreen(
           from: extra['from'] as String? ?? 'Current location',
           to: extra['to'] as String? ?? '',
+          toPlaceId: extra['toPlaceId'] as String? ?? '',
         );
       },
     ),
@@ -196,7 +207,20 @@ final appRouter = GoRouter(
 
     // Shared utility screens
     GoRoute(path: '/language', builder: (_, __) => const LanguageScreen()),
-    GoRoute(path: '/safety', builder: (_, __) => const SafetyScreen()),
+    GoRoute(
+      path: '/safety',
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>? ?? {};
+        return SafetyScreen(
+          driverName: extra['driverName'] as String?,
+          driverPhone: extra['driverPhone'] as String?,
+          tripFrom: extra['tripFrom'] as String?,
+          tripTo: extra['tripTo'] as String?,
+          riderName: extra['riderName'] as String?,
+        );
+      },
+    ),
+    GoRoute(path: '/trusted-contacts', builder: (_, __) => const TrustedContactsScreen()),
     GoRoute(
       path: '/chat',
       builder: (_, state) {
@@ -206,6 +230,7 @@ final appRouter = GoRouter(
           driverInitials: extra['driverInitials'] as String? ?? '?',
           otherPhotoUrl: extra['otherPhotoUrl'] as String?,
           reqId: extra['reqId'] as String? ?? '',
+          driverPhone: extra['driverPhone'] as String? ?? '',
         );
       },
     ),

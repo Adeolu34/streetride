@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/ride_api.dart';
 import '../../../core/models/ride_model.dart';
 import '../../../core/theme/app_theme.dart';
@@ -45,6 +47,7 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen> {
   bool _sheetExpanded = true;
   Timer? _locationTimer;
   bool _didNavigate = false;
+  String _driverPhone = '';
 
   @override
   void initState() {
@@ -80,6 +83,7 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen> {
 
     final driverPhone = ride.driverPhone.trim();
     if (driverPhone.isEmpty) return;
+    if (_driverPhone.isEmpty) setState(() => _driverPhone = driverPhone);
 
     try {
       final raw = await RideApi.instance.getLocation(driverPhone);
@@ -359,6 +363,10 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen> {
               reqId: widget.reqId,
               movt: movt,
               expanded: _sheetExpanded,
+              driverPhone: _driverPhone,
+              dropoffLat: _dropoff.latitude,
+              dropoffLng: _dropoff.longitude,
+              dropoffLabel: widget.to,
               onToggle: () =>
                   setState(() => _sheetExpanded = !_sheetExpanded),
               onRateAndPay: () => context.go('/rate-pay', extra: {
@@ -388,6 +396,10 @@ class _DriverSheet extends StatelessWidget {
   final String reqId;
   final String movt;
   final bool expanded;
+  final String driverPhone;
+  final double dropoffLat;
+  final double dropoffLng;
+  final String dropoffLabel;
   final VoidCallback onToggle;
   final VoidCallback onRateAndPay;
 
@@ -402,9 +414,32 @@ class _DriverSheet extends StatelessWidget {
     required this.reqId,
     required this.movt,
     required this.expanded,
+    required this.driverPhone,
+    required this.dropoffLat,
+    required this.dropoffLng,
+    required this.dropoffLabel,
     required this.onToggle,
     required this.onRateAndPay,
   });
+
+  Future<void> _callDriver() async {
+    final phone = driverPhone.startsWith('+') ? driverPhone : '+$driverPhone';
+    final uri = Uri.parse('tel:$phone');
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
+
+  Future<void> _openMap() async {
+    final label = Uri.encodeComponent(dropoffLabel);
+    final Uri uri;
+    if (Platform.isIOS) {
+      uri = Uri.parse('maps://?ll=$dropoffLat,$dropoffLng&q=$label');
+    } else {
+      uri = Uri.parse('geo:$dropoffLat,$dropoffLng?q=$dropoffLat,$dropoffLng($label)');
+    }
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -512,7 +547,7 @@ class _DriverSheet extends StatelessWidget {
           // Action buttons
           Row(
             children: [
-              _ActionBtn(icon: Icons.call_rounded, label: 'Call', onTap: () {}),
+              _ActionBtn(icon: Icons.call_rounded, label: 'Call', onTap: _callDriver),
               const SizedBox(width: 10),
               _ActionBtn(
                 icon: Icons.chat_bubble_rounded,
@@ -520,11 +555,12 @@ class _DriverSheet extends StatelessWidget {
                 onTap: () => context.push('/chat', extra: {
                   'driverName': driverName,
                   'driverInitials': driverInitials,
+                  'driverPhone': driverPhone,
                   'reqId': reqId,
                 }),
               ),
               const SizedBox(width: 10),
-              _ActionBtn(icon: Icons.share_location_rounded, label: 'Share', onTap: () {}),
+              _ActionBtn(icon: Icons.map_rounded, label: 'Map', onTap: _openMap),
             ],
           ),
 
