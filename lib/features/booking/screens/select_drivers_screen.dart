@@ -1,7 +1,9 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/api/ride_api.dart';
 import '../../../core/services/session_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -77,11 +79,13 @@ class _Driver {
 class SelectDriversScreen extends ConsumerStatefulWidget {
   final String from;
   final String to;
+  final String toPlaceId;
 
   const SelectDriversScreen({
     super.key,
     required this.from,
     required this.to,
+    this.toPlaceId = '',
   });
 
   @override
@@ -94,6 +98,8 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
   bool _loading = true;
   String? _error;
   Position? _position;
+  bool _cashPayment = false;
+  String? _fareEstimate;
 
   @override
   void initState() {
@@ -132,10 +138,44 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
       }
 
       setState(() { _drivers = list; _loading = false; });
+      if (pos != null && widget.toPlaceId.isNotEmpty) _estimateFare(pos);
     } catch (e) {
       setState(() { _error = 'Could not load nearby drivers.'; _loading = false; });
     }
   }
+
+  Future<void> _estimateFare(Position pickup) async {
+    try {
+      final res = await ApiClient.instance
+          .post({'theKey': 'RR2', 'PlaceId': widget.toPlaceId});
+      final place = res['place'] as Map<String, dynamic>?;
+      if (place == null) return;
+      final destLat = (place['Latitude'] as num?)?.toDouble();
+      final destLng = (place['Longitude'] as num?)?.toDouble();
+      if (destLat == null || destLng == null) return;
+
+      final km = _haversineKm(pickup.latitude, pickup.longitude, destLat, destLng);
+      final low = (km * 150).round();
+      final high = (km * 350).round();
+      if (mounted) {
+        setState(() => _fareEstimate =
+            '₦${_fmt(low)} – ₦${_fmt(high)} · ${km.toStringAsFixed(1)} km');
+      }
+    } catch (_) {}
+  }
+
+  static double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371.0;
+    final dLat = (lat2 - lat1) * pi / 180;
+    final dLon = (lon2 - lon1) * pi / 180;
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
+            sin(dLon / 2) * sin(dLon / 2);
+    return r * 2 * atan2(sqrt(a), sqrt(1 - a));
+  }
+
+  static String _fmt(int n) =>
+      n.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
 
   int get _selectedCount => _drivers.where((d) => d.selected).length;
 
@@ -176,6 +216,7 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
       'to': widget.to,
       'selectedCount': selected.length,
       'reqIds': reqIds,
+      'cashPayment': _cashPayment,
     });
   }
 
@@ -251,6 +292,98 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
             ),
 
             const SizedBox(height: 12),
+
+            // Fare estimate
+            if (_fareEstimate != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: SRColors.green100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.attach_money_rounded,
+                          color: SRColors.green600, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Est. $_fareEstimate based on distance',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: SRColors.green600,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Payment method toggle
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+              child: Row(
+                children: [
+                  const Text('Pay with:',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: SRColors.ink700)),
+                  const SizedBox(width: 12),
+                  GestureDetector(
+                    onTap: () => setState(() => _cashPayment = false),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: !_cashPayment ? SRColors.purple700 : Colors.white,
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(
+                            color: !_cashPayment ? SRColors.purple700 : SRColors.border),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.account_balance_wallet_rounded,
+                            size: 14,
+                            color: !_cashPayment ? Colors.white : SRColors.ink500),
+                        const SizedBox(width: 5),
+                        Text('Wallet',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: !_cashPayment ? Colors.white : SRColors.ink500)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => setState(() => _cashPayment = true),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: _cashPayment ? SRColors.purple700 : Colors.white,
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(
+                            color: _cashPayment ? SRColors.purple700 : SRColors.border),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.payments_rounded,
+                            size: 14,
+                            color: _cashPayment ? Colors.white : SRColors.ink500),
+                        const SizedBox(width: 5),
+                        Text('Cash',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _cashPayment ? Colors.white : SRColors.ink500)),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
             // Info banner
             Padding(
