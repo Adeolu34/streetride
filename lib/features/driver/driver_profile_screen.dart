@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/api/ride_api.dart';
 import '../../core/services/session_service.dart';
 import '../../core/services/background_poll_service.dart';
+import '../../core/services/engagement_service.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -12,6 +14,69 @@ class DriverProfileScreen extends StatefulWidget {
 }
 
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
+  int _walletBalance = 0;
+  int _totalTrips = 0;
+  int _streak = 0;
+  String _avgRating = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    final profile = SessionService.instance.profile;
+    if (profile == null) return;
+
+    try {
+      final walletRes = await RideApi.instance.getWalletStatus(profile.phone);
+      final bal = walletRes['ToBalance'] ?? walletRes['TotalBalance'] ?? '0';
+      final parsed = double.tryParse(bal.toString()) ?? 0;
+      if (mounted) setState(() => _walletBalance = parsed.toInt());
+    } catch (_) {
+      final fromProfile = double.tryParse(profile.walletBalance) ?? 0;
+      if (mounted) setState(() => _walletBalance = fromProfile.toInt());
+    }
+
+    try {
+      final histRes = await RideApi.instance.getPaymentHistory(profile.phone);
+      final total = histRes['TotalTransactions'] ?? 0;
+      if (mounted) setState(() => _totalTrips = int.tryParse(total.toString()) ?? 0);
+    } catch (_) {}
+
+
+    final streak = await EngagementService.instance.getStreak();
+    if (mounted) setState(() => _streak = streak);
+
+    try {
+      final detail = await RideApi.instance.getUserDetail(profile.phone);
+      final data = detail['Data'] as Map<String, dynamic>?;
+      if (data != null) {
+        final rawRating = (data['AverageRating'] ?? data['avg_rating'] ?? data['AvgRating'] ?? data['Rating'] ?? 0);
+        final rating = double.tryParse(rawRating.toString()) ?? 0;
+        final totalRides = (data['TotalRides'] ?? data['total_rides'] ?? 0) as num;
+        if (mounted) {
+          setState(() {
+            if (rating > 0) _avgRating = rating.toStringAsFixed(1);
+            if (totalRides > 0 && _totalTrips == 0) _totalTrips = totalRides.toInt();
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  String _fmtBalance(int n) {
+    final s = n.toString();
+    if (s.length <= 3) return s;
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return buf.toString();
+  }
+
   Future<void> _goEdit() async {
     await context.push('/driver-edit-profile');
     if (mounted) setState(() {});
@@ -31,7 +96,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     final vColor = profile?.vColor ?? '';
     final vType = profile?.vType ?? '';
 
-    final vehicleLine = [vColor, vMake, vModel].where((s) => s.isNotEmpty).join(' ');
+    final vehicleLine =
+        [vColor, vMake, vModel].where((s) => s.isNotEmpty).join(' ');
     final vehicleDetail = vehicleLine.isEmpty ? '—' : vehicleLine;
     final yearLabel = vYear.isNotEmpty ? ' · $vYear' : '';
     final typeLabel = vType.isNotEmpty ? vType : 'Vehicle';
@@ -46,9 +112,19 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               name: name,
               photoUrl: photoUrl,
               isKyc: isKyc,
+              avgRating: _avgRating,
               onEdit: _goEdit,
             ),
             const SizedBox(height: 16),
+
+            // Stats row
+            _DriverStatsRow(
+              walletBalance: '₦${_fmtBalance(_walletBalance)}',
+              totalTrips: _totalTrips,
+              streak: _streak,
+            ),
+            const SizedBox(height: 16),
+
             _VehicleCard(
               typeLabel: typeLabel,
               vehicleDetail: vehicleDetail,
@@ -56,6 +132,11 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               onEdit: _goEdit,
             ),
             const SizedBox(height: 16),
+
+            // Mode switch — switch back to rider mode
+            _DriverModeSwitchSection(profile: profile),
+            const SizedBox(height: 16),
+
             _MenuSection(
               title: 'Account',
               items: [
@@ -88,12 +169,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 _MenuItem(
                   icon: Icons.notifications_rounded,
                   label: 'Notifications',
-                  onTap: () {},
+                  onTap: () => context.push('/notifications'),
                 ),
                 _MenuItem(
                   icon: Icons.help_outline_rounded,
                   label: 'Help & support',
-                  onTap: () {},
+                  onTap: () => context.push('/help-faq'),
                 ),
               ],
             ),
@@ -134,11 +215,232 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   }
 }
 
+// ── Driver stats row ───────────────────────────────────────────────────────────
+
+class _DriverStatsRow extends StatelessWidget {
+  final String walletBalance;
+  final int totalTrips;
+  final int streak;
+  const _DriverStatsRow({
+    required this.walletBalance,
+    required this.totalTrips,
+    this.streak = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final streakLabel =
+        streak >= 2 ? '🔥 $streak days' : streak == 1 ? '1 day' : '—';
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 18),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SRColors.border),
+      ),
+      child: Row(
+        children: [
+          _Stat(label: 'Total trips', value: '$totalTrips'),
+          _StatDivider(),
+          _Stat(label: 'Earnings', value: walletBalance),
+          _StatDivider(),
+          _Stat(label: 'Streak', value: streakLabel),
+        ],
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _Stat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: SRColors.ink900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: SRColors.ink500),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 32, color: SRColors.border);
+}
+
+// ── Mode switch (Driver → Rider) ───────────────────────────────────────────────
+
+class _DriverModeSwitchSection extends StatelessWidget {
+  final dynamic profile;
+  const _DriverModeSwitchSection({required this.profile});
+
+  Future<void> _switchToRider(BuildContext context) async {
+    await SessionService.instance.switchMode(false);
+    BackgroundPollService.stop();
+    await BackgroundPollService.start();
+    if (context.mounted) context.go('/home');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFFF3CD), Color(0xFFFFE082)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: SRColors.amber500.withValues(alpha: 0.18),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: Row(
+                children: [
+                  const Icon(Icons.drive_eta_rounded,
+                      size: 16, color: SRColors.amber600),
+                  const SizedBox(width: 6),
+                  const Text(
+                    "You're driving",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: SRColors.amber600,
+                    ),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    'Switch mode',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: SRColors.amber600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    // Rider side (inactive)
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _switchToRider(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.person_rounded,
+                                  size: 18, color: SRColors.ink500),
+                              SizedBox(width: 7),
+                              Text(
+                                'Rider',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: SRColors.ink500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Driver side (active)
+                    Expanded(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: SRColors.amber500,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: SRColors.amber500.withValues(alpha: 0.35),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.drive_eta_rounded,
+                                size: 18, color: Colors.white),
+                            SizedBox(width: 7),
+                            Text(
+                              'Driver',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Profile header ─────────────────────────────────────────────────────────────
+
 class _DriverProfileHeader extends StatelessWidget {
   final String initials;
   final String name;
   final String photoUrl;
   final bool isKyc;
+  final String avgRating;
   final VoidCallback onEdit;
 
   const _DriverProfileHeader({
@@ -146,6 +448,7 @@ class _DriverProfileHeader extends StatelessWidget {
     required this.name,
     required this.photoUrl,
     required this.isKyc,
+    this.avgRating = '',
     required this.onEdit,
   });
 
@@ -162,7 +465,6 @@ class _DriverProfileHeader extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
           child: Column(
             children: [
-              // Edit button top-right
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -198,8 +500,6 @@ class _DriverProfileHeader extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-
-              // Avatar
               Container(
                 width: 80,
                 height: 80,
@@ -245,13 +545,21 @@ class _DriverProfileHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              const Row(
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.star_rounded, color: SRColors.amber500, size: 14),
-                  SizedBox(width: 4),
-                  Text(
-                    '4.8 · Driver',
+                  if (avgRating.isNotEmpty) ...[
+                    const Icon(Icons.star_rounded,
+                        color: SRColors.amber500, size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$avgRating · ',
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 13),
+                    ),
+                  ],
+                  const Text(
+                    'Driver',
                     style: TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                 ],
@@ -303,6 +611,8 @@ class _DriverProfileHeader extends StatelessWidget {
     );
   }
 }
+
+// ── Vehicle card ───────────────────────────────────────────────────────────────
 
 class _VehicleCard extends StatelessWidget {
   final String typeLabel;
@@ -383,6 +693,8 @@ class _VehicleCard extends StatelessWidget {
     );
   }
 }
+
+// ── Menu section ───────────────────────────────────────────────────────────────
 
 class _MenuSection extends StatelessWidget {
   final String title;

@@ -68,24 +68,39 @@ class AuthApi {
         'otp': otp,
       });
 
+  static String normalizeResetPhone(String phone) {
+    var clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.startsWith('234') && clean.length == 13) {
+      return '0${clean.substring(3)}';
+    }
+    if (clean.length == 10 && !clean.startsWith('0')) {
+      return '0$clean';
+    }
+    return clean;
+  }
+
   Future<Map<String, dynamic>> requestOtp({
     required String phone,
-  }) =>
-      _client.post({
-        'theKey': 'R11.7',
-        'Phone': phone,
-        'OldPhone': phone,
-      });
+  }) {
+    final p = normalizeResetPhone(phone);
+    return _client.post({
+      'theKey': 'R11.7',
+      'Phone': p,
+      'OldPhone': p,
+    });
+  }
 
   Future<Map<String, dynamic>> resetPassword({
     required String phone,
     required String otp,
     required String password,
-  }) =>
-      _client.post({
-        'theKey': 'R11.8',
-        'Phone': phone,
-        'Otp': otp,
-        'NewPassword': password,
-      });
+  }) {
+    final p = normalizeResetPhone(phone);
+    return _client.post({
+      'theKey': 'R11.8',
+      'Phone': p,
+      'Otp': otp,
+      'NewPassword': password,
+    });
+  }
 }

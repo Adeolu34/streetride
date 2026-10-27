@@ -102,7 +102,6 @@ class RideState {
   List<RideMessage> get pendingRides => messages.where((m) {
     if (m.statusLabel != RideStatusLabel.pending) return false;
     final movt = m.movtStatusDriver.toLowerCase().trim();
-    final ride = m.rideStatusRider.toLowerCase().trim();
     // Exclude anything that's truly finished but mapped to pending by statusLabel
     return movt.isEmpty || movt == 'new request';
   }).toList();

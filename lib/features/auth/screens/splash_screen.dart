@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/session_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -13,33 +15,71 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  VideoPlayerController? _video;
+  bool _videoReady = false;
+
+  // Fallback animation (used when video fails)
+  late AnimationController _fallbackCtrl;
   late Animation<double> _fadeAnim;
   late Animation<double> _scaleAnim;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    _fallbackCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
     _fadeAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+      CurvedAnimation(parent: _fallbackCtrl, curve: Curves.easeOut),
     );
     _scaleAnim = Tween<double>(begin: 0.8, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+      CurvedAnimation(parent: _fallbackCtrl, curve: Curves.easeOutBack),
     );
-    _controller.forward();
-    _navigate();
+
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    try {
+      final ctrl = VideoPlayerController.asset('assets/videos/intro.mp4');
+      await ctrl.initialize();
+      if (!mounted) { ctrl.dispose(); return; }
+      ctrl.addListener(_onVideoTick);
+      setState(() {
+        _video = ctrl;
+        _videoReady = true;
+      });
+      await ctrl.play();
+    } catch (_) {
+      if (!mounted) return;
+      _fallbackCtrl.forward();
+      Future.delayed(const Duration(milliseconds: 2200), _navigate);
+    }
+  }
+
+  void _onVideoTick() {
+    final v = _video;
+    if (v == null) return;
+    final pos = v.value.position;
+    final dur = v.value.duration;
+    // Navigate when within 100ms of the end (or video stops playing)
+    if (dur.inMilliseconds > 0 &&
+        pos.inMilliseconds >= dur.inMilliseconds - 100 &&
+        !v.value.isPlaying) {
+      v.removeListener(_onVideoTick);
+      _navigate();
+    }
   }
 
   Future<void> _navigate() async {
-    await Future.delayed(const Duration(milliseconds: 2200));
     if (!mounted) return;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-    // If the app was launched by tapping a notification, go there directly
-    final handledByNotif = await NotificationService.instance.consumePendingRoute(context);
+    final handledByNotif =
+        await NotificationService.instance.consumePendingRoute(context);
     if (handledByNotif || !mounted) return;
 
     final session = SessionService.instance;
@@ -52,12 +92,28 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _controller.dispose();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _video?.removeListener(_onVideoTick);
+    _video?.dispose();
+    _fallbackCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_videoReady && _video != null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: AspectRatio(
+            aspectRatio: _video!.value.aspectRatio,
+            child: VideoPlayer(_video!),
+          ),
+        ),
+      );
+    }
+
+    // Fallback: original animated splash
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: SRColors.gradHero),
@@ -97,7 +153,7 @@ class _SplashScreenState extends State<SplashScreen>
                         fontFamily: 'Poppins',
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color: Colors.white.withOpacity(0.75),
+                        color: Colors.white.withValues(alpha: 0.75),
                       ),
                     ),
                     const SizedBox(height: 60),
@@ -106,7 +162,7 @@ class _SplashScreenState extends State<SplashScreen>
                       height: 28,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        color: Colors.white.withOpacity(0.5),
+                        color: Colors.white.withValues(alpha: 0.5),
                       ),
                     ),
                   ],

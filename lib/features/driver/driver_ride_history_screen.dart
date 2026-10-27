@@ -5,6 +5,7 @@ import '../../core/api/ride_api.dart';
 import '../../core/models/ride_model.dart';
 import '../../core/services/session_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/driver_avatar.dart';
 import '../booking/providers/ride_provider.dart';
 
 enum _RideStatus { completed, cancelled, rejected, active, awaiting, pending }
@@ -14,6 +15,7 @@ class _HistoryRide {
   final String fromText;
   final String toText;
   final String riderName;
+  final String riderPhone;
   final String price;
   final String time;
   final _RideStatus status;
@@ -23,6 +25,7 @@ class _HistoryRide {
     required this.fromText,
     required this.toText,
     required this.riderName,
+    required this.riderPhone,
     required this.price,
     required this.time,
     required this.status,
@@ -56,6 +59,7 @@ class _HistoryRide {
       fromText: (j['fromText'] ?? '').toString(),
       toText: (j['toText'] ?? '').toString(),
       riderName: name.isNotEmpty ? name : 'Rider',
+      riderPhone: (j['Rphone'] ?? j['rphone'] ?? '').toString(),
       price: price,
       time: (j['Reqtime'] ?? '').toString(),
       status: status,
@@ -89,6 +93,7 @@ class _HistoryRide {
       fromText: m.fromText,
       toText: m.toText,
       riderName: name.isNotEmpty ? name : 'Rider',
+      riderPhone: m.riderPhone,
       price: price,
       time: m.requestTime,
       status: status,
@@ -498,6 +503,23 @@ class _RideCard extends StatefulWidget {
 
 class _RideCardState extends State<_RideCard> {
   bool _cancelling = false;
+  String? _riderPhotoUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRiderPhoto();
+  }
+
+  Future<void> _fetchRiderPhoto() async {
+    final phone = widget.ride.riderPhone.trim();
+    if (phone.isEmpty) return;
+    try {
+      final detail = await RideApi.instance.getUserDetail(phone);
+      final url = (detail['Photo'] ?? detail['photo'] ?? '').toString().trim();
+      if (mounted && url.isNotEmpty) setState(() => _riderPhotoUrl = url);
+    } catch (_) {}
+  }
 
   bool get _canMessage =>
       widget.ride.status == _RideStatus.active;
@@ -675,12 +697,15 @@ class _RideCardState extends State<_RideCard> {
           // Rider name + price
           Row(
             children: [
-              Container(
-                width: 26, height: 26,
-                decoration: const BoxDecoration(
-                    color: SRColors.lavenderBg, shape: BoxShape.circle),
-                child: const Icon(Icons.person_rounded,
-                    size: 14, color: SRColors.purple700),
+              DriverAvatar(
+                size: 26,
+                fontSize: 10,
+                initials: ride.riderName.isNotEmpty
+                    ? ride.riderName[0].toUpperCase()
+                    : 'R',
+                photoUrl: _riderPhotoUrl,
+                bgColor: SRColors.lavenderBg,
+                textColor: SRColors.purple700,
               ),
               const SizedBox(width: 7),
               Expanded(

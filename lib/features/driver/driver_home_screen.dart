@@ -10,6 +10,8 @@ import '../../core/services/session_service.dart';
 import '../../core/widgets/permission_setup_sheet.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ride_notification_overlay.dart';
+import '../../core/widgets/mascot_greeting.dart';
+import '../../core/widgets/onboarding_tour.dart';
 import '../booking/providers/ride_provider.dart';
 import 'driver_earnings_screen.dart';
 import 'driver_profile_screen.dart';
@@ -88,26 +90,32 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
 
     return Scaffold(
       backgroundColor: SRColors.lavenderBg,
-      body: RideNotificationOverlay(
-        child: isExpired
-            ? _ExpiredWalletGate(wallet: wallet!)
-            : IndexedStack(
-                index: _selectedTab,
-                children: [
-                  _HomeContent(
-                    online: _online,
-                    onToggle: _toggleOnline,
-                    driverFirstName: _driverFirstName,
-                    driverInitials: _driverInitials,
-                    driverPhotoUrl: _driverPhotoUrl,
-                    requests: pending,
-                    onRefresh: () => ref.read(rideProvider.notifier).poll(),
+      body: Stack(
+        children: [
+          RideNotificationOverlay(
+            child: isExpired
+                ? _ExpiredWalletGate(wallet: wallet!)
+                : IndexedStack(
+                    index: _selectedTab,
+                    children: [
+                      _HomeContent(
+                        online: _online,
+                        onToggle: _toggleOnline,
+                        driverFirstName: _driverFirstName,
+                        driverInitials: _driverInitials,
+                        driverPhotoUrl: _driverPhotoUrl,
+                        requests: pending,
+                        onRefresh: () => ref.read(rideProvider.notifier).poll(),
+                      ),
+                      const DriverRideHistoryScreen(embedded: true),
+                      const DriverEarningsScreen(showBackButton: false),
+                      const DriverProfileScreen(),
+                    ],
                   ),
-                  const DriverRideHistoryScreen(embedded: true),
-                  const DriverEarningsScreen(showBackButton: false),
-                  const DriverProfileScreen(),
-                ],
-              ),
+          ),
+          if (!isExpired) const MascotGreeting(),
+          if (!isExpired) const OnboardingTour(),
+        ],
       ),
       bottomNavigationBar: isExpired
           ? null
@@ -806,12 +814,25 @@ class _DriverBottomNav extends StatelessWidget {
       (Icons.bar_chart_rounded, Icons.bar_chart_outlined, 'Earnings'),
       (Icons.person_rounded, Icons.person_outline_rounded, 'Profile'),
     ];
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewPadding.bottom > mediaQuery.padding.bottom
+        ? mediaQuery.viewPadding.bottom
+        : mediaQuery.padding.bottom;
+    final effectiveBottom = bottomInset > 0 ? bottomInset + 4 : 14.0;
+
     return Container(
-      height: 70 + MediaQuery.of(context).padding.bottom,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: SRColors.border)),
+        border: const Border(top: BorderSide(color: SRColors.border)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, -3),
+          ),
+        ],
       ),
+      padding: EdgeInsets.only(top: 8, bottom: effectiveBottom),
       child: Row(
         children: List.generate(items.length, (i) {
           final active = i == selected;
@@ -821,23 +842,28 @@ class _DriverBottomNav extends StatelessWidget {
               onTap: () => onSelect(i),
               behavior: HitTestBehavior.opaque,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    active ? item.$1 : item.$2,
-                    color:
-                        active ? SRColors.purple700 : SRColors.ink500,
-                    size: 26,
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: active ? SRColors.purple100 : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      active ? item.$1 : item.$2,
+                      color: active ? SRColors.purple700 : SRColors.ink500.withValues(alpha: 0.7),
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     item.$3,
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: active
-                          ? SRColors.purple700
-                          : SRColors.ink500,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? SRColors.purple700 : SRColors.ink500.withValues(alpha: 0.7),
                     ),
                   ),
                 ],

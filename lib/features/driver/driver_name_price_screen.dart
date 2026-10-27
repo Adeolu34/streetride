@@ -205,7 +205,7 @@ class _DriverNamePriceScreenState extends ConsumerState<DriverNamePriceScreen>
                 ),
               ),
             ),
-            const Spacer(),
+            const SizedBox(height: 24),
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 18),
               padding: const EdgeInsets.all(22),

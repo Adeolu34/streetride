@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/ride_api.dart';
+import '../../../core/models/location_models.dart';
 import '../../../core/services/recent_places_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/sr_text_field.dart';
@@ -14,6 +15,8 @@ class _PlaceSuggestion {
   final String secondaryAddr;
   final String placeId;
   final String fullAddress;
+  final double? lat;
+  final double? lng;
   final bool isRecent;
 
   const _PlaceSuggestion({
@@ -21,11 +24,13 @@ class _PlaceSuggestion {
     required this.secondaryAddr,
     required this.placeId,
     required this.fullAddress,
+    this.lat,
+    this.lng,
     this.isRecent = false,
   });
 
   factory _PlaceSuggestion.fromApi(Map<String, dynamic> e) {
-    final full = (e['Address'] ?? e['description'] ?? '').toString().trim();
+    final full = formatCleanAddress((e['Address'] ?? e['description'] ?? '').toString());
     final commaIdx = full.indexOf(',');
     final primary = commaIdx > 0 ? full.substring(0, commaIdx).trim() : full;
     final secondary = commaIdx > 0 ? full.substring(commaIdx + 1).trim() : '';
@@ -42,6 +47,8 @@ class _PlaceSuggestion {
         secondaryAddr: r.secondaryAddr,
         placeId: r.placeId,
         fullAddress: r.fullAddress,
+        lat: r.lat,
+        lng: r.lng,
         isRecent: true,
       );
 }
@@ -51,8 +58,20 @@ enum _Field { pickup, destination }
 class SearchScreen extends ConsumerStatefulWidget {
   final String? initialFrom;
   final String? initialTo;
+  final double? initialFromLat;
+  final double? initialFromLng;
+  final double? initialToLat;
+  final double? initialToLng;
 
-  const SearchScreen({super.key, this.initialFrom, this.initialTo});
+  const SearchScreen({
+    super.key,
+    this.initialFrom,
+    this.initialTo,
+    this.initialFromLat,
+    this.initialFromLng,
+    this.initialToLat,
+    this.initialToLng,
+  });
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -72,22 +91,36 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   String _pickupPlaceId = '';
   String _destPlaceId = '';
+  double? _pickupLat;
+  double? _pickupLng;
+  double? _destLat;
+  double? _destLng;
   bool _locating = false;
 
   static const _quickPlaces = [
-    (name: 'Palms Shopping Mall', address: 'Bisway St, Lekki'),
-    (name: 'Murtala Muhammed Airport', address: 'Ikeja, Lagos'),
-    (name: 'Oshodi Bus Terminal', address: 'Oshodi, Lagos'),
-    (name: 'Victoria Island', address: 'Lagos Island, Lagos'),
+    (name: 'Palms Shopping Mall', address: 'Bisway St, Lekki', lat: 6.4357, lng: 3.4414),
+    (name: 'Murtala Muhammed Airport', address: 'Ikeja, Lagos', lat: 6.57025, lng: 3.32142),
+    (name: 'Oshodi Bus Terminal', address: 'Oshodi, Lagos', lat: 6.5492, lng: 3.3556),
+    (name: 'Victoria Island', address: 'Lagos Island, Lagos', lat: 6.4281, lng: 3.4219),
   ];
 
   @override
   void initState() {
     super.initState();
+    _pickupLat = widget.initialFromLat;
+    _pickupLng = widget.initialFromLng;
+    _destLat = widget.initialToLat;
+    _destLng = widget.initialToLng;
     _pickupCtr.text = widget.initialFrom ?? 'Current location';
     if (widget.initialTo != null) _destCtr.text = widget.initialTo!;
     _pickupFocus.addListener(_onFocusChange);
     _destFocus.addListener(_onFocusChange);
+
+    // If pickup is uninitialized, quietly geocode user location
+    if (widget.initialFrom == null || widget.initialFrom == 'Current location' || _pickupLat == null) {
+      _resolveCurrentLocationQuietly();
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.initialTo != null && widget.initialFrom != null) {
         // Both pre-filled — go straight to select drivers
@@ -98,6 +131,30 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       }
     });
     _loadRecents();
+  }
+
+  Future<void> _resolveCurrentLocationQuietly() async {
+    try {
+      Position? pos = await Geolocator.getLastKnownPosition();
+      pos ??= await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      ).timeout(const Duration(seconds: 4));
+      if (mounted) {
+        _pickupLat = pos.latitude;
+        _pickupLng = pos.longitude;
+        final geo = await RideApi.instance.reverseGeocodeClean(
+          lat: pos.latitude.toStringAsFixed(6),
+          long: pos.longitude.toStringAsFixed(6),
+        );
+        if (mounted && geo.formattedAddress.isNotEmpty) {
+          if (_pickupCtr.text == 'Current location' || _pickupCtr.text.isEmpty) {
+            setState(() {
+              _pickupCtr.text = geo.formattedAddress;
+            });
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadRecents() async {
@@ -177,19 +234,37 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
-  void _selectSuggestion(_PlaceSuggestion s) {
+  Future<void> _selectSuggestion(_PlaceSuggestion s) async {
     FocusScope.of(context).unfocus();
-    // Save to recents
+    final cleanAddr = formatCleanAddress(s.fullAddress);
+
+    double? lat = s.lat;
+    double? lng = s.lng;
+
+    // Await place details if coordinates not present
+    if ((lat == null || lng == null) && s.placeId.isNotEmpty) {
+      try {
+        final detail = await RideApi.instance.getPlaceDetailClean(s.placeId);
+        lat = detail.latitude;
+        lng = detail.longitude;
+      } catch (_) {}
+    }
+
+    // Save to recents with resolved coordinates
     RecentPlacesService.save(RecentPlace(
       primaryName: s.primaryName,
       secondaryAddr: s.secondaryAddr,
-      fullAddress: s.fullAddress,
+      fullAddress: cleanAddr,
       placeId: s.placeId,
+      lat: lat,
+      lng: lng,
     ));
 
     if (_activeField == _Field.pickup) {
-      _pickupCtr.text = s.fullAddress;
+      _pickupCtr.text = cleanAddr;
       _pickupPlaceId = s.placeId;
+      _pickupLat = lat;
+      _pickupLng = lng;
       setState(() {
         _suggestions = [];
         _activeField = _Field.destination;
@@ -198,28 +273,37 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         if (mounted) _destFocus.requestFocus();
       });
     } else {
-      _destCtr.text = s.fullAddress;
+      _destCtr.text = cleanAddr;
       _destPlaceId = s.placeId;
+      _destLat = lat;
+      _destLng = lng;
       setState(() => _suggestions = []);
-      _tryConfirm();
+      await _tryConfirm();
     }
     _loadRecents();
   }
 
-  void _selectQuick(String name, String addr) {
+  void _selectQuick(String name, String addr, double lat, double lng) {
+    final clean = formatCleanAddress('$name, $addr');
+    RecentPlacesService.save(RecentPlace(
+      primaryName: name,
+      secondaryAddr: addr,
+      fullAddress: clean,
+      lat: lat,
+      lng: lng,
+    ));
     if (_activeField == _Field.destination) {
-      _destCtr.text = name;
+      _destCtr.text = clean;
       _destPlaceId = '';
-      RecentPlacesService.save(RecentPlace(
-        primaryName: name,
-        secondaryAddr: addr,
-        fullAddress: name,
-      ));
+      _destLat = lat;
+      _destLng = lng;
       setState(() => _suggestions = []);
       _tryConfirm();
     } else {
-      _pickupCtr.text = name;
+      _pickupCtr.text = clean;
       _pickupPlaceId = '';
+      _pickupLat = lat;
+      _pickupLng = lng;
       setState(() {
         _suggestions = [];
         _activeField = _Field.destination;
@@ -231,19 +315,63 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _loadRecents();
   }
 
-  void _tryConfirm() {
+  Future<void> _tryConfirm() async {
     final pickup = _pickupCtr.text.trim();
     final dest = _destCtr.text.trim();
     if (pickup.isEmpty || dest.isEmpty) return;
     FocusScope.of(context).unfocus();
-    Future.delayed(const Duration(milliseconds: 80), () {
-      if (!mounted) return;
-      context.push('/select-drivers', extra: {
-        'from': pickup,
-        'to': dest,
-        'fromPlaceId': _pickupPlaceId,
-        'toPlaceId': _destPlaceId,
-      });
+
+    // 1. Resolve pickup coordinates if missing
+    if (_pickupLat == null || _pickupLng == null) {
+      try {
+        final pos = await Geolocator.getLastKnownPosition();
+        if (pos != null) {
+          _pickupLat = pos.latitude;
+          _pickupLng = pos.longitude;
+        }
+      } catch (_) {}
+      if (_pickupLat == null && pickup != 'Current location') {
+        final detail = await RideApi.instance.resolveAddress(pickup);
+        if (detail?.lat != null && detail?.lng != null) {
+          _pickupLat = detail!.lat;
+          _pickupLng = detail.lng;
+        }
+      }
+    }
+
+    // 2. Resolve destination coordinates if missing
+    if (_destLat == null || _destLng == null) {
+      if (_destPlaceId.isNotEmpty) {
+        try {
+          final d = await RideApi.instance.getPlaceDetailClean(_destPlaceId);
+          if (d.latitude != null && d.longitude != null) {
+            _destLat = d.latitude;
+            _destLng = d.longitude;
+          }
+        } catch (_) {}
+      }
+      if (_destLat == null || _destLng == null) {
+        final resolved = await RideApi.instance.resolveAddress(dest);
+        if (resolved?.lat != null && resolved?.lng != null) {
+          _destLat = resolved!.lat;
+          _destLng = resolved.lng;
+          if (_destPlaceId.isEmpty && resolved.placeId.isNotEmpty) {
+            _destPlaceId = resolved.placeId;
+          }
+        }
+      }
+    }
+
+    if (!mounted) return;
+    context.push('/select-drivers', extra: {
+      'from': pickup,
+      'to': dest,
+      'fromPlaceId': _pickupPlaceId,
+      'toPlaceId': _destPlaceId,
+      'fromLat': _pickupLat,
+      'fromLng': _pickupLng,
+      'toLat': _destLat,
+      'toLng': _destLng,
     });
   }
 
@@ -266,13 +394,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             const LocationSettings(accuracy: LocationAccuracy.medium),
       ).timeout(const Duration(seconds: 12));
 
-      final res = await RideApi.instance.reverseGeocode(
+      _pickupLat = pos.latitude;
+      _pickupLng = pos.longitude;
+
+      final geo = await RideApi.instance.reverseGeocodeClean(
         lat: pos.latitude.toStringAsFixed(6),
         long: pos.longitude.toStringAsFixed(6),
       );
-      final addr = (res['address'] ?? res['Address'] ?? '').toString().trim();
+      final addr = geo.formattedAddress.isNotEmpty
+          ? geo.formattedAddress
+          : 'Current location';
+
       if (mounted) {
-        _pickupCtr.text = addr.isNotEmpty ? addr : 'Current location';
+        _pickupCtr.text = addr;
         _pickupPlaceId = '';
         setState(() {
           _suggestions = [];
@@ -305,24 +439,38 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
     if (result == null || !mounted) return;
 
-    final address = (result['address'] ?? '').toString().trim();
+    final address = formatCleanAddress((result['address'] ?? '').toString());
     if (address.isEmpty) return;
 
+    final rLat = (result['lat'] as num?)?.toDouble();
+    final rLng = (result['lng'] as num?)?.toDouble();
+    final rPlaceId = (result['placeId'] ?? '').toString();
+
     // Save to recent places
-    final primary = address.split(',').first.trim();
-    final secondary = address.contains(',')
-        ? address.substring(address.indexOf(',') + 1).trim()
-        : '';
+    final primary = (result['primaryName'] ?? address.split(',').first)
+        .toString()
+        .trim();
+    final secondary = (result['secondaryAddr'] ??
+            (address.contains(',')
+                ? address.substring(address.indexOf(',') + 1).trim()
+                : ''))
+        .toString();
+
     RecentPlacesService.save(RecentPlace(
       primaryName: primary,
       secondaryAddr: secondary,
       fullAddress: address,
+      placeId: rPlaceId,
+      lat: rLat,
+      lng: rLng,
     ));
     _loadRecents();
 
     if (_activeField == _Field.pickup) {
       _pickupCtr.text = address;
-      _pickupPlaceId = '';
+      _pickupPlaceId = rPlaceId;
+      _pickupLat = rLat;
+      _pickupLng = rLng;
       setState(() {
         _suggestions = [];
         _activeField = _Field.destination;
@@ -332,7 +480,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       });
     } else {
       _destCtr.text = address;
-      _destPlaceId = '';
+      _destPlaceId = rPlaceId;
+      _destLat = rLat;
+      _destLng = rLng;
       setState(() => _suggestions = []);
       _tryConfirm();
     }
@@ -427,7 +577,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             icon: Icons.location_on_rounded,
                             label: p.name,
                             subtitle: p.address,
-                            onTap: () => _selectQuick(p.name, p.address),
+                            onTap: () => _selectQuick(p.name, p.address, p.lat, p.lng),
                           )),
                     ],
                   ],

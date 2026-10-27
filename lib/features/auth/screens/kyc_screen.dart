@@ -112,7 +112,7 @@ class _KycScreenState extends State<KycScreen> {
   }
 }
 
-enum _StepStatus { pending, uploaded, verified }
+enum _StepStatus { pending, uploaded }
 
 class _KycStep {
   final IconData icon;

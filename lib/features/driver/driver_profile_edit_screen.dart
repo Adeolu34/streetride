@@ -23,6 +23,7 @@ class _DriverProfileEditScreenState extends State<DriverProfileEditScreen> {
   late final TextEditingController _vMakeCtrl;
   late final TextEditingController _vModelCtrl;
   late final TextEditingController _vYearCtrl;
+  late final TextEditingController _vPlateCtrl;
   late final TextEditingController _bankCtrl;
 
   String _vType = '';
@@ -67,6 +68,7 @@ class _DriverProfileEditScreenState extends State<DriverProfileEditScreen> {
     _vMakeCtrl = TextEditingController(text: p?.vMake ?? '');
     _vModelCtrl = TextEditingController(text: p?.vModel ?? '');
     _vYearCtrl = TextEditingController(text: p?.vYear ?? '');
+    _vPlateCtrl = TextEditingController(text: p?.vPlate ?? '');
     _bankCtrl = TextEditingController(text: p?.bankno ?? '');
     _vType = p?.vType ?? '';
     _vColor = p?.vColor ?? '';
@@ -94,6 +96,7 @@ class _DriverProfileEditScreenState extends State<DriverProfileEditScreen> {
     _vMakeCtrl.dispose();
     _vModelCtrl.dispose();
     _vYearCtrl.dispose();
+    _vPlateCtrl.dispose();
     _bankCtrl.dispose();
     super.dispose();
   }
@@ -298,6 +301,7 @@ class _DriverProfileEditScreenState extends State<DriverProfileEditScreen> {
         vModel: _vModelCtrl.text.trim(),
         vYear: _vYearCtrl.text.trim(),
         vColor: _vColor,
+        vPlate: _vPlateCtrl.text.trim(),
         imagePath: _pickedImage?.path,
       );
 
@@ -312,6 +316,7 @@ class _DriverProfileEditScreenState extends State<DriverProfileEditScreen> {
         vModel: _vModelCtrl.text.trim(),
         vYear: _vYearCtrl.text.trim(),
         vColor: _vColor,
+        vPlate: _vPlateCtrl.text.trim(),
       );
       await SessionService.instance.updateProfile(updated);
 
@@ -713,6 +718,14 @@ class _DriverProfileEditScreenState extends State<DriverProfileEditScreen> {
                         controller: _vModelCtrl,
                       ),
                       _Divider(),
+                      _InlineField(
+                        icon: Icons.pin_rounded,
+                        label: 'Plate number',
+                        hint: 'e.g. ABC 123 XY',
+                        controller: _vPlateCtrl,
+                        textCapitalization: TextCapitalization.characters,
+                      ),
+                      _Divider(),
 
                       // Color picker
                       Padding(
@@ -984,6 +997,7 @@ class _InlineField extends StatelessWidget {
   final TextEditingController controller;
   final TextInputType keyboardType;
   final List<TextInputFormatter>? inputFormatters;
+  final TextCapitalization textCapitalization;
 
   const _InlineField({
     required this.icon,
@@ -992,6 +1006,7 @@ class _InlineField extends StatelessWidget {
     this.hint,
     this.keyboardType = TextInputType.text,
     this.inputFormatters,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   @override
@@ -1027,6 +1042,7 @@ class _InlineField extends StatelessWidget {
                   controller: controller,
                   keyboardType: keyboardType,
                   inputFormatters: inputFormatters,
+                  textCapitalization: textCapitalization,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w500,

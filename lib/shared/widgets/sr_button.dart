@@ -30,13 +30,13 @@ class SRButton extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         height: 54,
         decoration: BoxDecoration(
-          color: isLoading ? bg.withOpacity(0.7) : bg,
+          color: isLoading ? bg.withValues(alpha: 0.7) : bg,
           borderRadius: BorderRadius.circular(999),
           boxShadow: isSecondary
               ? null
               : [
                   BoxShadow(
-                    color: SRColors.purple700.withOpacity(0.3),
+                    color: SRColors.purple700.withValues(alpha: 0.3),
                     blurRadius: 16,
                     offset: const Offset(0, 6),
                   ),

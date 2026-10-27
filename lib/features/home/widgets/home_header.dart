@@ -5,8 +5,9 @@ import '../../../core/theme/app_theme.dart';
 class HomeHeader extends StatelessWidget {
   final UserProfile? profile;
   final Widget? bookingCard;
+  final int streak;
 
-  const HomeHeader({super.key, required this.profile, this.bookingCard});
+  const HomeHeader({super.key, required this.profile, this.bookingCard, this.streak = 0});
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -75,12 +76,41 @@ class HomeHeader extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _greeting,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.8),
-                          fontSize: 12,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            _greeting,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                          if (streak >= 2) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: SRColors.amber500.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text('🔥', style: TextStyle(fontSize: 10)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '$streak days',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: SRColors.amber500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       Text(
                         profile?.fullName ?? 'Rider',
@@ -143,22 +173,6 @@ class HomeHeader extends StatelessWidget {
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 7),
-                Row(
-                  children: [
-                    const Icon(Icons.savings_rounded,
-                        size: 14, color: SRColors.amber500),
-                    const SizedBox(width: 5),
-                    Text(
-                      'You saved ₦480 this week comparing prices',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.white.withValues(alpha: 0.82),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

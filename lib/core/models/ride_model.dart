@@ -33,6 +33,7 @@ class RideMessage {
   final String airConditioning;
   final String riderName;   // Rname = the rider's name
   final String driverName;  // Dname = the driver's name
+  final String driverPhotoUrl;
   final double driverNeatness;
   final double driverQualityScore;
   final int issueWithDriver;
@@ -72,6 +73,7 @@ class RideMessage {
     required this.airConditioning,
     required this.riderName,
     required this.driverName,
+    required this.driverPhotoUrl,
     required this.driverNeatness,
     required this.driverQualityScore,
     required this.issueWithDriver,
@@ -112,6 +114,7 @@ class RideMessage {
         airConditioning: (j['ac'] ?? '').toString(),
         riderName: (j['Rname'] ?? '').toString(),
         driverName: (j['Dname'] ?? '').toString(),
+        driverPhotoUrl: (j['DPhoto'] ?? j['DriverImage'] ?? j['driverImage'] ?? '').toString(),
         driverNeatness: (j['DriverNeatness'] as num? ?? 0).toDouble(),
         driverQualityScore: (j['DriverQualityScore'] as num? ?? 0).toDouble(),
         issueWithDriver: (j['IssueWithDriver'] as num? ?? 0).toInt(),

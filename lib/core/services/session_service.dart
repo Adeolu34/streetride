@@ -65,6 +65,12 @@ class SessionService {
     await prefs.remove(_keyRememberPassword);
   }
 
+  Future<void> switchMode(bool isDriver) async {
+    _isDriver = isDriver;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyIsDriver, isDriver);
+  }
+
   Future<void> updateProfile(UserProfile updated) async {
     _profile = updated;
     final prefs = await SharedPreferences.getInstance();

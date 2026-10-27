@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/ride_api.dart';
 import '../../../core/models/ride_model.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/driver_avatar.dart';
 import '../../../shared/widgets/sr_button.dart';
 import '../providers/ride_provider.dart';
 
@@ -13,6 +14,10 @@ class RequestPendingScreen extends ConsumerStatefulWidget {
   final String to;
   final int selectedCount;
   final List<String> reqIds;
+  final double? fromLat;
+  final double? fromLng;
+  final double? toLat;
+  final double? toLng;
 
   const RequestPendingScreen({
     super.key,
@@ -20,6 +25,10 @@ class RequestPendingScreen extends ConsumerStatefulWidget {
     required this.to,
     required this.selectedCount,
     this.reqIds = const [],
+    this.fromLat,
+    this.fromLng,
+    this.toLat,
+    this.toLng,
   });
 
   @override
@@ -33,6 +42,8 @@ class _RequestPendingScreenState extends ConsumerState<RequestPendingScreen>
   int _secondsLeft = 120;
   Timer? _timer;
   bool _cancelling = false;
+  final Map<String, String> _driverImages = {};
+  final Set<String> _fetchingPhones = {};
 
   @override
   void initState() {
@@ -62,6 +73,20 @@ class _RequestPendingScreenState extends ConsumerState<RequestPendingScreen>
     super.dispose();
   }
 
+  Future<void> _fetchDriverImage(String phone) async {
+    if (phone.isEmpty || _fetchingPhones.contains(phone)) return;
+    _fetchingPhones.add(phone);
+    try {
+      final data = await RideApi.instance.getUserDetail(phone);
+      final profile = data['Data'] as Map<String, dynamic>?;
+      if (profile == null) return;
+      final url = (profile['Image'] ?? profile['Photo'] ?? '').toString();
+      if (url.isNotEmpty && mounted) {
+        setState(() => _driverImages[phone] = url);
+      }
+    } catch (_) {}
+  }
+
   String get _timerLabel {
     final m = _secondsLeft ~/ 60;
     final s = _secondsLeft % 60;
@@ -72,10 +97,24 @@ class _RequestPendingScreenState extends ConsumerState<RequestPendingScreen>
     await RideApi.instance.acceptPrice(ride.reqId);
     if (!mounted) return;
     ref.read(rideProvider.notifier).stopPolling();
-    context.pushReplacement('/driver-offers', extra: {
+    final fLat = double.tryParse(ride.fromLat) ?? widget.fromLat;
+    final fLng = double.tryParse(ride.fromLng) ?? widget.fromLng;
+    final tLat = double.tryParse(ride.toLat) ?? widget.toLat;
+    final tLng = double.tryParse(ride.toLng) ?? widget.toLng;
+    context.pushReplacement('/live-tracking', extra: {
+      'driverName': ride.driverName.isNotEmpty ? ride.driverName : 'Driver',
+      'driverInitials': _initials(ride.driverName),
+      'driverPhotoUrl': _driverImages[ride.driverPhone] ?? '',
+      'car': ride.vehicleType.isNotEmpty ? ride.vehicleType : '—',
+      'rating': 0.0,
+      'price': int.tryParse(ride.priceByDriver.replaceAll(RegExp(r'[^\d]'), '')) ?? 0,
       'from': widget.from,
       'to': widget.to,
-      'reqIds': widget.reqIds,
+      'reqId': ride.reqId,
+      'fromLat': fLat,
+      'fromLng': fLng,
+      'toLat': tLat,
+      'toLng': tLng,
     });
   }
 
@@ -119,6 +158,12 @@ class _RequestPendingScreenState extends ConsumerState<RequestPendingScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<RideState>(rideProvider, (_, next) {
+      for (final m in next.messages) {
+        if (m.driverPhone.isNotEmpty) _fetchDriverImage(m.driverPhone);
+      }
+    });
+
     final rideState = ref.watch(rideProvider);
     final rides = rideState.messages.where((m) =>
       m.statusLabel != RideStatusLabel.cancelled &&
@@ -405,6 +450,7 @@ class _RequestPendingScreenState extends ConsumerState<RequestPendingScreen>
                         final cardState = _cardState(m);
                         return _PendingDriverCard(
                           initials: _initials(m.driverName),
+                          photoUrl: _driverImages[m.driverPhone],
                           name: m.driverName.isNotEmpty ? m.driverName : 'Driver',
                           car: m.vehicleType.isNotEmpty ? m.vehicleType : '—',
                           state: cardState,
@@ -466,6 +512,7 @@ class _RequestPendingScreenState extends ConsumerState<RequestPendingScreen>
 
 class _PendingDriverCard extends StatelessWidget {
   final String initials;
+  final String? photoUrl;
   final String name;
   final String car;
   final String? state; // null=pending, '₦X'=offer, 'viewed'=seen
@@ -474,6 +521,7 @@ class _PendingDriverCard extends StatelessWidget {
 
   const _PendingDriverCard({
     required this.initials,
+    this.photoUrl,
     required this.name,
     required this.car,
     required this.state,
@@ -501,23 +549,11 @@ class _PendingDriverCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  color: SRColors.purple700,
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    initials,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
+              DriverAvatar(
+                initials: initials,
+                photoUrl: photoUrl,
+                size: 36,
+                fontSize: 12,
               ),
               const SizedBox(width: 10),
               Expanded(

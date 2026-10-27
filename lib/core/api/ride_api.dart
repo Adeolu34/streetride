@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../models/location_models.dart';
 import 'api_client.dart';
 
 String _toIntl(String phone) {
@@ -135,6 +136,45 @@ class RideApi {
   }) =>
       _client.post({'theKey': 'RR3', 'Latitude': lat, 'Longitude': long});
 
+  /// Strongly-typed reverse geocode helper that returns a cleanly parsed [GeocodedAddress]
+  Future<GeocodedAddress> reverseGeocodeClean({
+    required String lat,
+    required String long,
+  }) async {
+    final res = await reverseGeocode(lat: lat, long: long);
+    return GeocodedAddress.fromApiResponse(res);
+  }
+
+  /// Strongly-typed place detail helper that returns a cleanly parsed [PlaceDetailResult]
+  Future<PlaceDetailResult> getPlaceDetailClean(String placeId) async {
+    final res = await getPlaceDetail(placeId);
+    return PlaceDetailResult.fromApiResponse(res);
+  }
+
+  /// Resolves an address string (e.g. "Murtala Muhammed Airport") to its precise coordinates
+  /// by querying RR1 autocomplete and resolving the top prediction via RR2.
+  Future<PlaceDetailResult?> resolveAddress(String address) async {
+    final query = address.trim();
+    if (query.isEmpty) return null;
+    try {
+      final res = await searchAddress(query);
+      final raw = res['predictions'];
+      if (raw is List && raw.isNotEmpty) {
+        final first = raw.first;
+        if (first is Map<String, dynamic>) {
+          final pid = (first['PlaceId'] ?? first['placeId'] ?? '').toString();
+          if (pid.isNotEmpty) {
+            final detail = await getPlaceDetailClean(pid);
+            if (detail.latitude != null && detail.longitude != null) {
+              return detail;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // Get wallet balance
   Future<Map<String, dynamic>> getWalletStatus(String phone) =>
       _client.post({'theKey': 'BK11', 'phone': _toIntl(phone)});
@@ -261,6 +301,7 @@ class RideApi {
     String vModel = '',
     String vYear = '',
     String vColor = '',
+    String vPlate = '',
     String bankno = '',
     String? imagePath,
   }) async {
@@ -278,6 +319,7 @@ class RideApi {
       'VModel': vModel,
       'VYear': vYear,
       'VColor': vColor,
+      'vplate': vPlate,
       'bankno': bankno,
     };
     if (imagePath != null && imagePath.isNotEmpty) {

@@ -69,7 +69,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
     final driver =
         widget.driverName != null ? '\nDriver: *${widget.driverName}*' : '';
     final message = Uri.encodeComponent(
-        '👋 Hi! I want you to know I\'m currently on a StreetRide trip.\n\n📍 Route: $route$driver\n\nPlease check on me if you don\'t hear from me soon.');
+        '👋 Hi! It\'s $name. I want you to know I\'m currently on a StreetRide trip.\n\n📍 Route: $route$driver\n\nPlease check on me if you don\'t hear from me soon.');
 
     final waUri = Uri.parse('https://wa.me/?text=$message');
     if (await canLaunchUrl(waUri)) {

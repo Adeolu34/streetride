@@ -1,13 +1,15 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/api/api_client.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../core/api/ride_api.dart';
+import '../../../core/models/location_models.dart';
+import '../../../core/services/route_service.dart';
 import '../../../core/services/session_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/sr_button.dart';
+import '../../../shared/widgets/driver_avatar.dart';
 
 class _Driver {
   final String phone;
@@ -19,6 +21,7 @@ class _Driver {
   final String distKm;
   final String minutesAway;
   final String status;
+  String? photoUrl;
   bool selected;
 
   _Driver({
@@ -31,8 +34,8 @@ class _Driver {
     required this.distKm,
     required this.minutesAway,
     required this.status,
-    this.selected = true,
-  });
+    this.photoUrl,
+  }) : selected = true;
 
   factory _Driver.fromJson(Map<String, dynamic> j) {
     final first = (j['firstname'] ?? j['FirstName'] ?? j['Name'] ?? '').toString().trim();
@@ -62,6 +65,8 @@ class _Driver {
         : '—';
     final minutesAway = (j['minutes_away'] ?? '').toString();
 
+    final photoUrl = (j['image'] ?? j['Image'] ?? j['Photo'] ?? '').toString();
+
     return _Driver(
       phone: phone,
       initials: initials,
@@ -72,6 +77,7 @@ class _Driver {
       distKm: distKm,
       minutesAway: minutesAway,
       status: status,
+      photoUrl: photoUrl.isNotEmpty ? photoUrl : null,
     );
   }
 }
@@ -79,13 +85,23 @@ class _Driver {
 class SelectDriversScreen extends ConsumerStatefulWidget {
   final String from;
   final String to;
+  final String fromPlaceId;
   final String toPlaceId;
+  final double? fromLat;
+  final double? fromLng;
+  final double? toLat;
+  final double? toLng;
 
   const SelectDriversScreen({
     super.key,
     required this.from,
     required this.to,
+    this.fromPlaceId = '',
     this.toPlaceId = '',
+    this.fromLat,
+    this.fromLng,
+    this.toLat,
+    this.toLng,
   });
 
   @override
@@ -100,6 +116,10 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
   Position? _position;
   bool _cashPayment = false;
   String? _fareEstimate;
+  double? _destLat;
+  double? _destLng;
+  String _routeKm = '0';
+  String _routeEta = '0';
 
   @override
   void initState() {
@@ -111,19 +131,29 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       Position? pos;
-      try {
-        final perm = await Geolocator.checkPermission();
-        if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
-          await Geolocator.requestPermission();
-        }
-        pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      if (widget.fromLat != null && widget.fromLng != null) {
+        pos = Position(
+          latitude: widget.fromLat!,
+          longitude: widget.fromLng!,
+          timestamp: DateTime.now(),
+          accuracy: 10,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
         );
         _position = pos;
-      } catch (_) {}
+      } else {
+        try {
+          pos = await Geolocator.getLastKnownPosition();
+          if (pos != null) _position = pos;
+        } catch (_) {}
+      }
 
-      final lat = pos?.latitude.toString() ?? '6.5244';
-      final long = pos?.longitude.toString() ?? '3.3792';
+      final lat = widget.fromLat?.toString() ?? pos?.latitude.toString() ?? '6.5244';
+      final long = widget.fromLng?.toString() ?? pos?.longitude.toString() ?? '3.3792';
 
       final data = await RideApi.instance.getNearbyDrivers(lat: lat, long: long);
       final rawUsers = data['Users'];
@@ -138,40 +168,77 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
       }
 
       setState(() { _drivers = list; _loading = false; });
-      if (pos != null && widget.toPlaceId.isNotEmpty) _estimateFare(pos);
+      _estimateFare(pos);
+      _loadDriverImages(list);
     } catch (e) {
       setState(() { _error = 'Could not load nearby drivers.'; _loading = false; });
     }
   }
 
-  Future<void> _estimateFare(Position pickup) async {
-    try {
-      final res = await ApiClient.instance
-          .post({'theKey': 'RR2', 'PlaceId': widget.toPlaceId});
-      final place = res['place'] as Map<String, dynamic>?;
-      if (place == null) return;
-      final destLat = (place['Latitude'] as num?)?.toDouble();
-      final destLng = (place['Longitude'] as num?)?.toDouble();
-      if (destLat == null || destLng == null) return;
-
-      final km = _haversineKm(pickup.latitude, pickup.longitude, destLat, destLng);
-      final low = (km * 150).round();
-      final high = (km * 350).round();
-      if (mounted) {
-        setState(() => _fareEstimate =
-            '₦${_fmt(low)} – ₦${_fmt(high)} · ${km.toStringAsFixed(1)} km');
-      }
-    } catch (_) {}
+  Future<void> _loadDriverImages(List<_Driver> drivers) async {
+    final futures = drivers
+        .where((d) => d.phone.isNotEmpty && d.photoUrl == null)
+        .map((d) async {
+      try {
+        final data = await RideApi.instance.getUserDetail(d.phone);
+        final profile = data['Data'] as Map<String, dynamic>?;
+        if (profile == null) return;
+        final url = (profile['Image'] ?? profile['Photo'] ?? '').toString();
+        if (url.isNotEmpty && mounted) {
+          setState(() => d.photoUrl = url);
+        }
+      } catch (_) {}
+    });
+    await Future.wait(futures);
   }
 
-  static double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
-    const r = 6371.0;
-    final dLat = (lat2 - lat1) * pi / 180;
-    final dLon = (lon2 - lon1) * pi / 180;
-    final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
-            sin(dLon / 2) * sin(dLon / 2);
-    return r * 2 * atan2(sqrt(a), sqrt(1 - a));
+  Future<void> _estimateFare(Position? pickup) async {
+    try {
+      double? destLat = widget.toLat;
+      double? destLng = widget.toLng;
+
+      // If dest coordinates not provided directly, fetch from placeId
+      if ((destLat == null || destLng == null) && widget.toPlaceId.isNotEmpty) {
+        final detail = await RideApi.instance.getPlaceDetailClean(widget.toPlaceId);
+        destLat = detail.latitude;
+        destLng = detail.longitude;
+      }
+
+      // If still missing, resolve from address text
+      if ((destLat == null || destLng == null) && widget.to.isNotEmpty) {
+        final resolved = await RideApi.instance.resolveAddress(widget.to);
+        if (resolved?.lat != null && resolved?.lng != null) {
+          destLat = resolved!.lat;
+          destLng = resolved.lng;
+        }
+      }
+
+      if (destLat == null || destLng == null) return;
+      _destLat = destLat;
+      _destLng = destLng;
+
+      final originLat = widget.fromLat ?? pickup?.latitude ?? 6.5244;
+      final originLng = widget.fromLng ?? pickup?.longitude ?? 3.3792;
+
+      // Query real road driving route with OSRM
+      final route = await RouteService.instance.getDrivingRoute(
+        origin: LatLng(originLat, originLng),
+        destination: LatLng(destLat, destLng),
+      );
+
+      final km = route.distanceKm;
+      _routeKm = km.toStringAsFixed(1);
+      _routeEta = '${route.durationMinutes} min';
+
+      // Realistic Nigerian pricing: base fare ₦800 + ₦180–₦320 per km
+      final low = (800 + km * 180).round();
+      final high = (1200 + km * 320).round();
+
+      if (mounted) {
+        setState(() => _fareEstimate =
+            '₦${_fmt(low)} – ₦${_fmt(high)} · ${route.distanceLabel} (~${route.durationLabel})');
+      }
+    } catch (_) {}
   }
 
   static String _fmt(int n) =>
@@ -182,24 +249,52 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
   Future<void> _requestPrices() async {
     final session = SessionService.instance;
     final riderPhone = session.profile?.phone ?? '';
-    final lat = _position?.latitude.toString() ?? '0';
-    final long = _position?.longitude.toString() ?? '0';
+    final lat = widget.fromLat?.toString() ?? _position?.latitude.toString() ?? '6.5244';
+    final long = widget.fromLng?.toString() ?? _position?.longitude.toString() ?? '3.3792';
+
+    // Ensure destination coordinates are resolved before sending BK1
+    double? destLat = _destLat ?? widget.toLat;
+    double? destLng = _destLng ?? widget.toLng;
+    if ((destLat == null || destLng == null || destLat == 0.0) && widget.toPlaceId.isNotEmpty) {
+      try {
+        final detail = await RideApi.instance.getPlaceDetailClean(widget.toPlaceId);
+        destLat = detail.latitude;
+        destLng = detail.longitude;
+      } catch (_) {}
+    }
+    if ((destLat == null || destLng == null || destLat == 0.0) && widget.to.isNotEmpty) {
+      try {
+        final resolved = await RideApi.instance.resolveAddress(widget.to);
+        if (resolved?.lat != null && resolved?.lng != null) {
+          destLat = resolved!.lat;
+          destLng = resolved.lng;
+        }
+      } catch (_) {}
+    }
+
+    final dLat = (destLat ?? 0.0).toString();
+    final dLong = (destLng ?? 0.0).toString();
 
     final selected = _drivers.where((d) => d.selected && d.phone.isNotEmpty).toList();
     if (selected.isEmpty) return;
 
-    // Book each selected driver (BK1) — fire in parallel
+    final cleanFrom = formatCleanAddress(widget.from);
+    final cleanTo = formatCleanAddress(widget.to);
+    final displayFrom = cleanFrom.isNotEmpty ? cleanFrom : widget.from;
+    final displayTo = cleanTo.isNotEmpty ? cleanTo : widget.to;
+
+    // Book each selected driver (BK1) — fire in parallel with real coordinates & km & eta
     final futures = selected.map((d) => RideApi.instance.bookRide(
       riderPhone: riderPhone,
       driverPhone: d.phone,
       fromLat: lat,
       fromLong: long,
-      toLat: '0',
-      toLong: '0',
-      fromText: widget.from,
-      toText: widget.to,
-      km: '0',
-      eta: '0',
+      toLat: dLat,
+      toLong: dLong,
+      fromText: displayFrom,
+      toText: displayTo,
+      km: _routeKm,
+      eta: _routeEta,
     ).catchError((_) => <String, dynamic>{}));
 
     final results = await Future.wait(futures);
@@ -212,11 +307,15 @@ class _SelectDriversScreenState extends ConsumerState<SelectDriversScreen> {
 
     if (!mounted) return;
     context.push('/request-pending', extra: {
-      'from': widget.from,
-      'to': widget.to,
+      'from': displayFrom,
+      'to': displayTo,
       'selectedCount': selected.length,
       'reqIds': reqIds,
       'cashPayment': _cashPayment,
+      'fromLat': double.tryParse(lat),
+      'fromLng': double.tryParse(long),
+      'toLat': destLat,
+      'toLng': destLng,
     });
   }
 
@@ -559,23 +658,13 @@ class _DriverCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: driver.selected ? SRColors.purple700 : SRColors.border,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  driver.initials,
-                  style: TextStyle(
-                    color: driver.selected ? Colors.white : SRColors.ink700,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
+            DriverAvatar(
+              initials: driver.initials,
+              photoUrl: driver.photoUrl,
+              size: 42,
+              fontSize: 14,
+              bgColor: driver.selected ? SRColors.purple700 : SRColors.border,
+              textColor: driver.selected ? Colors.white : SRColors.ink700,
             ),
             const SizedBox(width: 11),
             Expanded(

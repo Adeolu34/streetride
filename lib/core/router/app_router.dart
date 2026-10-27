@@ -8,6 +8,8 @@ import '../../features/auth/screens/welcome_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
+import '../../features/auth/screens/forgot_password_screen.dart';
+import '../../features/auth/screens/reset_password_screen.dart';
 import '../../features/auth/screens/kyc_screen.dart';
 import '../../features/home/rider_home_screen.dart';
 import '../../features/driver/driver_home_screen.dart';
@@ -29,6 +31,11 @@ import '../../features/booking/screens/rate_pay_screen.dart';
 import '../../features/safety/safety_screen.dart';
 import '../../features/safety/trusted_contacts_screen.dart';
 import '../../features/chat/chat_screen.dart';
+import '../../features/profile/notifications_screen.dart';
+import '../../features/profile/help_faq_screen.dart';
+import '../../features/profile/about_screen.dart';
+import '../../features/profile/payment_methods_screen.dart';
+import '../../features/profile/saved_places_screen.dart';
 
 final appRouter = GoRouter(
   navigatorKey: NotificationService.navigatorKey,
@@ -38,6 +45,28 @@ final appRouter = GoRouter(
     GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
     GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
     GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+    GoRoute(
+      path: '/forgot-password',
+      builder: (_, state) {
+        final extraPhone = (state.extra is Map)
+            ? (state.extra as Map)['phone']?.toString()
+            : null;
+        final phone = state.uri.queryParameters['phone'] ?? extraPhone ?? '';
+        return ForgotPasswordScreen(initialPhone: phone);
+      },
+    ),
+    GoRoute(
+      path: '/reset-password',
+      builder: (_, state) {
+        final extraPhone = (state.extra is Map)
+            ? (state.extra as Map)['phone']?.toString()
+            : null;
+        final phone = extraPhone ??
+            state.uri.queryParameters['phone'] ??
+            '';
+        return ResetPasswordScreen(phone: phone);
+      },
+    ),
     GoRoute(
       path: '/signup',
       builder: (_, state) {
@@ -95,6 +124,14 @@ final appRouter = GoRouter(
         final extra = state.extra as Map<String, dynamic>? ?? {};
         return DriverNavigateScreen(
           reqId: extra['reqId'] as String? ?? '',
+          riderName: extra['riderName'] as String? ?? 'Rider',
+          riderPhone: extra['riderPhone'] as String? ?? '',
+          fromText: extra['fromText'] as String? ?? '',
+          toText: extra['toText'] as String? ?? '',
+          fromLat: (extra['fromLat'] as num?)?.toDouble() ?? 0.0,
+          fromLng: (extra['fromLng'] as num?)?.toDouble() ?? 0.0,
+          toLat: (extra['toLat'] as num?)?.toDouble() ?? 0.0,
+          toLng: (extra['toLng'] as num?)?.toDouble() ?? 0.0,
         );
       },
     ),
@@ -127,6 +164,10 @@ final appRouter = GoRouter(
         return SearchScreen(
           initialFrom: extra['from'] as String?,
           initialTo: extra['to'] as String?,
+          initialFromLat: (extra['fromLat'] as num?)?.toDouble(),
+          initialFromLng: (extra['fromLng'] as num?)?.toDouble(),
+          initialToLat: (extra['toLat'] as num?)?.toDouble(),
+          initialToLng: (extra['toLng'] as num?)?.toDouble(),
         );
       },
     ),
@@ -135,8 +176,12 @@ final appRouter = GoRouter(
       builder: (_, state) {
         final extra = state.extra as Map<String, dynamic>? ?? {};
         return MapPickerScreen(
-          initialLat: (extra['initialLat'] as num?)?.toDouble(),
-          initialLng: (extra['initialLng'] as num?)?.toDouble(),
+          initialLat: (extra['initialLat'] as num?)?.toDouble() ??
+              (extra['lat'] as num?)?.toDouble(),
+          initialLng: (extra['initialLng'] as num?)?.toDouble() ??
+              (extra['lng'] as num?)?.toDouble(),
+          initialAddress:
+              (extra['initialAddress'] ?? extra['address']) as String?,
         );
       },
     ),
@@ -147,7 +192,12 @@ final appRouter = GoRouter(
         return SelectDriversScreen(
           from: extra['from'] as String? ?? 'Current location',
           to: extra['to'] as String? ?? '',
+          fromPlaceId: extra['fromPlaceId'] as String? ?? '',
           toPlaceId: extra['toPlaceId'] as String? ?? '',
+          fromLat: (extra['fromLat'] as num?)?.toDouble(),
+          fromLng: (extra['fromLng'] as num?)?.toDouble(),
+          toLat: (extra['toLat'] as num?)?.toDouble(),
+          toLng: (extra['toLng'] as num?)?.toDouble(),
         );
       },
     ),
@@ -160,6 +210,10 @@ final appRouter = GoRouter(
           to: extra['to'] as String? ?? '',
           selectedCount: extra['selectedCount'] as int? ?? 3,
           reqIds: (extra['reqIds'] as List?)?.cast<String>() ?? [],
+          fromLat: (extra['fromLat'] as num?)?.toDouble(),
+          fromLng: (extra['fromLng'] as num?)?.toDouble(),
+          toLat: (extra['toLat'] as num?)?.toDouble(),
+          toLng: (extra['toLng'] as num?)?.toDouble(),
         );
       },
     ),
@@ -171,6 +225,10 @@ final appRouter = GoRouter(
           from: extra['from'] as String? ?? 'Current location',
           to: extra['to'] as String? ?? '',
           reqIds: (extra['reqIds'] as List?)?.cast<String>() ?? [],
+          fromLat: (extra['fromLat'] as num?)?.toDouble(),
+          fromLng: (extra['fromLng'] as num?)?.toDouble(),
+          toLat: (extra['toLat'] as num?)?.toDouble(),
+          toLng: (extra['toLng'] as num?)?.toDouble(),
         );
       },
     ),
@@ -181,12 +239,17 @@ final appRouter = GoRouter(
         return LiveTrackingScreen(
           driverName: extra['driverName'] as String? ?? '',
           driverInitials: extra['driverInitials'] as String? ?? '',
+          driverPhotoUrl: extra['driverPhotoUrl'] as String? ?? '',
           car: extra['car'] as String? ?? '',
           rating: (extra['rating'] as num?)?.toDouble() ?? 0,
           price: extra['price'] as int? ?? 0,
           from: extra['from'] as String? ?? '',
           to: extra['to'] as String? ?? '',
           reqId: extra['reqId'] as String? ?? '',
+          fromLat: (extra['fromLat'] as num?)?.toDouble(),
+          fromLng: (extra['fromLng'] as num?)?.toDouble(),
+          toLat: (extra['toLat'] as num?)?.toDouble(),
+          toLng: (extra['toLng'] as num?)?.toDouble(),
         );
       },
     ),
@@ -207,6 +270,11 @@ final appRouter = GoRouter(
 
     // Shared utility screens
     GoRoute(path: '/language', builder: (_, __) => const LanguageScreen()),
+    GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+    GoRoute(path: '/help-faq', builder: (_, __) => const HelpFaqScreen()),
+    GoRoute(path: '/about', builder: (_, __) => const AboutScreen()),
+    GoRoute(path: '/payment-methods', builder: (_, __) => const PaymentMethodsScreen()),
+    GoRoute(path: '/saved-places', builder: (_, __) => const SavedPlacesScreen()),
     GoRoute(
       path: '/safety',
       builder: (_, state) {

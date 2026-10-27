@@ -26,6 +26,7 @@ dependencies:
   # Location & Maps
   geolocator: ^13.0.0
   flutter_map: ^6.1.0
+  google_maps_flutter: ^2.10.0
   latlong2: ^0.9.0
   permission_handler: ^11.3.1
 
@@ -38,6 +39,12 @@ dependencies:
   # Storage
   shared_preferences: ^2.3.3
   path_provider: ^2.1.4
+
+  # Biometric authentication
+  local_auth: ^2.3.0
+
+  # Video
+  video_player: ^2.9.2
 
   # Utilities
   intl: ^0.19.0
@@ -56,6 +63,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
+    - assets/videos/
 
 flutter_launcher_icons:
   android: true

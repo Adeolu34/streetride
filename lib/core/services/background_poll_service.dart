@@ -10,6 +10,7 @@ import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'engagement_service.dart';
 
 const _handlerEp = 'https://streetrideplus.com/sr/myhandler';
 
@@ -35,6 +36,38 @@ void onStart(ServiceInstance service) async {
       sound: RawResourceAndroidNotificationSound('sr_alert'),
     ),
   );
+
+  await androidPlugin?.createNotificationChannel(
+    const AndroidNotificationChannel(
+      'sr_engagement',
+      'Daily Reminders',
+      description: 'Personalized reminders to keep your rides on track',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    ),
+  );
+
+  Future<void> notifyEngagement(int id, String title, String body) async {
+    await fln.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'sr_engagement',
+          'Daily Reminders',
+          channelDescription: 'Personalized reminders to keep your rides on track',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+          autoCancel: true,
+          styleInformation: BigTextStyleInformation(''),
+        ),
+      ),
+      payload: '/home',
+    );
+  }
 
   Future<void> notify(int id, String title, String body, {String? payload}) async {
     await fln.show(
@@ -216,6 +249,9 @@ void onStart(ServiceInstance service) async {
               if (title != null) {
                 await notify(notifId++, title, body!, payload: '/home');
               }
+              if (movt.toLowerCase().trim() == 'completed') {
+                await EngagementService.instance.recordTripCompleted(toText);
+              }
             }
           }
         }
@@ -232,22 +268,46 @@ void onStart(ServiceInstance service) async {
       if (statesChanged) {
         await prefs.setString('sr_bg_ride_states', jsonEncode(states));
       }
+
+      // ── Re-engagement notifications ──────────────────────────────────────
+      if (await EngagementService.shouldSendMorningNotif()) {
+        final name = await EngagementService.getUserFirstName();
+        await notifyEngagement(
+          8001,
+          'Good morning, $name!',
+          'Ready for a ride today? Compare driver prices and pick the best deal.',
+        );
+        await EngagementService.markMorningNotifSent();
+      } else if (await EngagementService.shouldSendEveningNotif()) {
+        final name = await EngagementService.getUserFirstName();
+        await notifyEngagement(
+          8002,
+          'Still need a ride, $name?',
+          'Drivers are online and ready. Book now before it gets late.',
+        );
+        await EngagementService.markEveningNotifSent();
+      }
     } catch (_) {}
   }
 
-  // Keep an active location stream so Android/TECNO treats this as a
-  // protected location foreground service and does not kill it.
+  // Drivers need an active location stream so Android treats this as a
+  // protected location service and dispatches rides based on driver position.
+  // Riders DO NOT need background location tracking.
   StreamSubscription<Position>? _locationSub;
   try {
-    final permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse) {
-      _locationSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-          distanceFilter: 50,
-        ),
-      ).listen((_) {});
+    final prefs = await SharedPreferences.getInstance();
+    final bool isDriver = prefs.getBool('sr_is_driver') ?? false;
+    if (isDriver) {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse) {
+        _locationSub = Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low,
+            distanceFilter: 50,
+          ),
+        ).listen((_) {});
+      }
     }
   } catch (_) {}
 

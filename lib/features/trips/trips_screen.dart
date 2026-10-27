@@ -5,6 +5,7 @@ import '../../core/api/ride_api.dart';
 import '../../core/models/ride_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/session_service.dart';
+import '../../shared/widgets/driver_avatar.dart';
 import '../booking/providers/ride_provider.dart';
 
 class TripsScreen extends ConsumerStatefulWidget {
@@ -124,8 +125,7 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
                       onRefresh: _loadArchive,
                       color: SRColors.purple700,
                       child: shown.isEmpty
-                          ? const Center(child: Text('No trips found',
-                              style: TextStyle(color: SRColors.ink500, fontSize: 14)))
+                          ? const _EmptyTrips()
                           : ListView.separated(
                               padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
                               itemCount: shown.length,
@@ -160,6 +160,7 @@ class _Trip {
   final int price;
   final _TripStatus status;
   final String driverName;
+  final String driverPhone;
   final String movtStatus;
   final String rideStatus;
   final String confirmStatus;
@@ -174,6 +175,7 @@ class _Trip {
     required this.price,
     required this.status,
     required this.driverName,
+    required this.driverPhone,
     required this.movtStatus,
     required this.rideStatus,
     required this.confirmStatus,
@@ -226,6 +228,7 @@ class _Trip {
       price: price,
       status: _classify(ride, movt, confirm, price),
       driverName: (j['Dname'] ?? '').toString(),
+      driverPhone: (j['Dphone'] ?? j['dphone'] ?? '').toString(),
       movtStatus: movt,
       rideStatus: ride,
       confirmStatus: confirm,
@@ -246,6 +249,7 @@ class _Trip {
       price: price,
       status: _classify(ride, movt, confirm, price),
       driverName: m.driverName,
+      driverPhone: m.driverPhone,
       movtStatus: movt,
       rideStatus: ride,
       confirmStatus: confirm,
@@ -267,8 +271,25 @@ class _TripCard extends StatefulWidget {
 
 class _TripCardState extends State<_TripCard> {
   bool _acting = false;
+  String? _driverPhotoUrl;
 
   _Trip get t => widget.trip;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDriverPhoto();
+  }
+
+  Future<void> _fetchDriverPhoto() async {
+    final phone = t.driverPhone.trim();
+    if (phone.isEmpty) return;
+    try {
+      final detail = await RideApi.instance.getUserDetail(phone);
+      final url = (detail['Photo'] ?? detail['photo'] ?? '').toString().trim();
+      if (mounted && url.isNotEmpty) setState(() => _driverPhotoUrl = url);
+    } catch (_) {}
+  }
 
   bool get _canWithdraw =>
       t.message != null &&
@@ -293,7 +314,6 @@ class _TripCardState extends State<_TripCard> {
     if (_acting) return;
     setState(() => _acting = true);
     final m = t.message!;
-    final movt = m.movtStatusDriver.toLowerCase().trim();
     final hasPrice = m.priceByDriver.trim().isNotEmpty;
     final bk5 = hasPrice ? 'Reject Price' : 'Withdraw';
     final bk4 = hasPrice ? 'Reject Price' : 'Cancel';
@@ -394,11 +414,18 @@ class _TripCardState extends State<_TripCard> {
           children: [
             Row(
               children: [
-                Container(
-                  width: 40, height: 40,
-                  decoration: BoxDecoration(color: info.bg, shape: BoxShape.circle),
-                  child: Icon(info.icon, color: info.color, size: 20),
-                ),
+                t.driverName.isNotEmpty
+                    ? DriverAvatar(
+                        size: 40,
+                        fontSize: 15,
+                        initials: t.driverName[0].toUpperCase(),
+                        photoUrl: _driverPhotoUrl,
+                      )
+                    : Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(color: info.bg, shape: BoxShape.circle),
+                        child: Icon(info.icon, color: info.color, size: 20),
+                      ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -723,3 +750,277 @@ class _TabRow extends StatelessWidget {
     );
   }
 }
+
+// ── Animated empty state ──────────────────────────────────────────────────────
+
+class _EmptyTrips extends StatefulWidget {
+  const _EmptyTrips();
+
+  @override
+  State<_EmptyTrips> createState() => _EmptyTripsState();
+}
+
+class _EmptyTripsState extends State<_EmptyTrips> with TickerProviderStateMixin {
+  late final AnimationController _drive;
+  late final AnimationController _intro;
+  late final Animation<double> _carX;
+  late final Animation<double> _fadeIn;
+  late final Animation<double> _slideUp;
+
+  @override
+  void initState() {
+    super.initState();
+    _drive = AnimationController(vsync: this, duration: const Duration(seconds: 3))
+      ..repeat(reverse: true);
+    _intro = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+
+    _carX = Tween(begin: -14.0, end: 14.0).animate(
+      CurvedAnimation(parent: _drive, curve: Curves.easeInOut),
+    );
+    _fadeIn = Tween(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _intro, curve: const Interval(0.0, 0.7, curve: Curves.easeOut)),
+    );
+    _slideUp = Tween(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _intro, curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic)),
+    );
+    _intro.forward();
+  }
+
+  @override
+  void dispose() {
+    _drive.dispose();
+    _intro.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_drive, _intro]),
+      builder: (context, _) {
+        return Opacity(
+          opacity: _fadeIn.value,
+          child: Transform.translate(
+            offset: Offset(0, 30 * (1 - _slideUp.value)),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Road + car illustration
+                    SizedBox(
+                      width: 240,
+                      height: 180,
+                      child: CustomPaint(
+                        painter: _RoadPainter(_carX.value),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'No trips yet',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: SRColors.ink900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Your ride history will appear here.\nBook your first trip and hit the road!',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: SRColors.ink500,
+                        height: 1.5,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RoadPainter extends CustomPainter {
+  final double carX;
+  _RoadPainter(this.carX);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    // ── Sky background ───────────────────────────────────────────────────
+    final skyPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFEFE0ED), Color(0xFFF4F1FB)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, size.width, size.height), const Radius.circular(24)),
+      skyPaint,
+    );
+
+    // ── Clouds ───────────────────────────────────────────────────────────
+    _drawCloud(canvas, 50, 28, 28);
+    _drawCloud(canvas, 180, 20, 20);
+
+    // ── Sun ──────────────────────────────────────────────────────────────
+    canvas.drawCircle(
+      Offset(cx + 70, 36),
+      18,
+      Paint()..color = SRColors.amber300.withValues(alpha: 0.8),
+    );
+    canvas.drawCircle(
+      Offset(cx + 70, 36),
+      13,
+      Paint()..color = SRColors.amber500,
+    );
+
+    // ── Road ─────────────────────────────────────────────────────────────
+    final roadY = cy + 20.0;
+    final roadPaint = Paint()..color = const Color(0xFF4A4A5A);
+    final roadRect = RRect.fromRectAndRadius(
+      Rect.fromLTRB(0, roadY, size.width, size.height),
+      const Radius.circular(0),
+    );
+    canvas.drawRRect(roadRect, roadPaint);
+
+    // Road edge line
+    canvas.drawLine(
+      Offset(0, roadY),
+      Offset(size.width, roadY),
+      Paint()
+        ..color = SRColors.amber500
+        ..strokeWidth = 2.5,
+    );
+
+    // Dashed center line
+    final dashPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6)
+      ..strokeWidth = 2;
+    const dashW = 18.0, gapW = 12.0;
+    double x = 0;
+    while (x < size.width) {
+      canvas.drawLine(Offset(x, roadY + 22), Offset(x + dashW, roadY + 22), dashPaint);
+      x += dashW + gapW;
+    }
+
+    // ── Cartoon car ──────────────────────────────────────────────────────
+    final carCx = cx + carX;
+    final carBaseY = roadY - 2;
+
+    // Wheels
+    for (final wx in [carCx - 22.0, carCx + 22.0]) {
+      canvas.drawCircle(
+        Offset(wx, carBaseY + 2),
+        9,
+        Paint()..color = const Color(0xFF2D2D3A),
+      );
+      canvas.drawCircle(
+        Offset(wx, carBaseY + 2),
+        5,
+        Paint()..color = const Color(0xFF9090A0),
+      );
+    }
+
+    // Car body
+    final bodyPath = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTRB(carCx - 36, carBaseY - 18, carCx + 36, carBaseY),
+        const Radius.circular(6),
+      ));
+    canvas.drawPath(bodyPath, Paint()..color = SRColors.purple700);
+
+    // Car roof (rounded dome)
+    final roofPath = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTRB(carCx - 22, carBaseY - 34, carCx + 22, carBaseY - 14),
+        const Radius.circular(10),
+      ));
+    canvas.drawPath(roofPath, Paint()..color = SRColors.purple700);
+
+    // Windows
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(carCx - 18, carBaseY - 32, carCx - 4, carBaseY - 18),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFFB8E8FF).withValues(alpha: 0.9),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(carCx + 4, carBaseY - 32, carCx + 18, carBaseY - 18),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFFB8E8FF).withValues(alpha: 0.9),
+    );
+
+    // Headlights
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(carCx + 29, carBaseY - 12, carCx + 38, carBaseY - 7),
+        const Radius.circular(2),
+      ),
+      Paint()..color = SRColors.amber300,
+    );
+
+    // StreetRide badge on car
+    final badgePaint = TextPainter(
+      text: const TextSpan(
+        text: 'SR',
+        style: TextStyle(
+          fontSize: 8,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    badgePaint.paint(canvas, Offset(carCx - 5, carBaseY - 14));
+
+    // Shadow under car
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(carCx, carBaseY + 6), width: 72, height: 8),
+      Paint()..color = Colors.black.withValues(alpha: 0.18),
+    );
+
+    // ── Trees on side ────────────────────────────────────────────────────
+    _drawTree(canvas, 16, roadY - 2);
+    _drawTree(canvas, size.width - 16, roadY - 2);
+  }
+
+  void _drawCloud(Canvas canvas, double x, double y, double r) {
+    final p = Paint()..color = Colors.white.withValues(alpha: 0.85);
+    canvas.drawCircle(Offset(x, y), r, p);
+    canvas.drawCircle(Offset(x + r * 0.75, y + 4), r * 0.7, p);
+    canvas.drawCircle(Offset(x - r * 0.65, y + 5), r * 0.65, p);
+    canvas.drawCircle(Offset(x + r * 0.2, y + 9), r * 0.8, p);
+  }
+
+  void _drawTree(Canvas canvas, double x, double groundY) {
+    // Trunk
+    canvas.drawRect(
+      Rect.fromLTRB(x - 4, groundY - 20, x + 4, groundY),
+      Paint()..color = const Color(0xFF8B6340),
+    );
+    // Foliage
+    for (int i = 0; i < 3; i++) {
+      canvas.drawCircle(
+        Offset(x + (i - 1) * 7.0, groundY - 26 - i * 4),
+        12 - i * 1.5,
+        Paint()..color = const Color(0xFF4CAF50).withValues(alpha: 0.85 - i * 0.1),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RoadPainter old) => old.carX != carX;
+}
+

@@ -81,7 +81,19 @@ class _DriverOfferStatusScreenState
     if (isAccepted && !_navigated) {
       _navigated = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) context.go('/driver-navigate', extra: {'reqId': widget.reqId});
+        if (mounted) {
+          context.go('/driver-navigate', extra: {
+            'reqId': widget.reqId,
+            'riderName': ride?.riderName ?? widget.riderName,
+            'riderPhone': ride?.riderPhone ?? '',
+            'fromText': widget.fromText,
+            'toText': widget.toText,
+            'fromLat': double.tryParse(ride?.fromLat ?? '') ?? 0.0,
+            'fromLng': double.tryParse(ride?.fromLng ?? '') ?? 0.0,
+            'toLat': double.tryParse(ride?.toLat ?? '') ?? 0.0,
+            'toLng': double.tryParse(ride?.toLng ?? '') ?? 0.0,
+          });
+        }
       });
     }
 
@@ -117,9 +129,16 @@ class _DriverOfferStatusScreenState
               toText: widget.toText.isNotEmpty
                   ? widget.toText
                   : 'Drop-off',
-              riderName: widget.riderName.isNotEmpty
-                  ? widget.riderName
-                  : 'Rider',
+              riderName: ride?.riderName.isNotEmpty == true
+                  ? ride!.riderName
+                  : widget.riderName.isNotEmpty
+                      ? widget.riderName
+                      : 'Rider',
+              riderPhone: ride?.riderPhone ?? '',
+              fromLat: double.tryParse(ride?.fromLat ?? '') ?? 0.0,
+              fromLng: double.tryParse(ride?.fromLng ?? '') ?? 0.0,
+              toLat: double.tryParse(ride?.toLat ?? '') ?? 0.0,
+              toLng: double.tryParse(ride?.toLng ?? '') ?? 0.0,
               isAccepted: isAccepted,
               isRejected: isRejected,
               reqId: widget.reqId,
@@ -137,6 +156,11 @@ class _ActiveOfferCard extends StatelessWidget {
   final String fromText;
   final String toText;
   final String riderName;
+  final String riderPhone;
+  final double fromLat;
+  final double fromLng;
+  final double toLat;
+  final double toLng;
   final bool isAccepted;
   final bool isRejected;
   final String reqId;
@@ -147,6 +171,11 @@ class _ActiveOfferCard extends StatelessWidget {
     required this.fromText,
     required this.toText,
     required this.riderName,
+    this.riderPhone = '',
+    this.fromLat = 0.0,
+    this.fromLng = 0.0,
+    this.toLat = 0.0,
+    this.toLng = 0.0,
     required this.isAccepted,
     required this.isRejected,
     required this.reqId,
@@ -234,7 +263,17 @@ class _ActiveOfferCard extends StatelessWidget {
               ),
               if (isAccepted)
                 GestureDetector(
-                  onTap: () => context.go('/driver-navigate', extra: {'reqId': reqId}),
+                  onTap: () => context.go('/driver-navigate', extra: {
+                    'reqId': reqId,
+                    'riderName': riderName,
+                    'riderPhone': riderPhone,
+                    'fromText': fromText,
+                    'toText': toText,
+                    'fromLat': fromLat,
+                    'fromLng': fromLng,
+                    'toLat': toLat,
+                    'toLng': toLng,
+                  }),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 10),

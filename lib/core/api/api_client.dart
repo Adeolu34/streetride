@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _baseUrl = 'https://streetrideplus.com/sr';
@@ -9,7 +11,16 @@ const _authUserId = 'Paysp1010\$i.i';
 const _authSecretKey = r'$2a$10$3JK3bVeSVXW0xrVzqmvUmu/tX.XLoUqbwPxTYqZdDz1QHMB2jhDxm';
 
 class ApiClient {
-  ApiClient._();
+  ApiClient._() {
+    final adapter = _dio.httpClientAdapter;
+    if (adapter is IOHttpClientAdapter) {
+      adapter.createHttpClient = () {
+        final client = HttpClient();
+        client.badCertificateCallback = (cert, host, port) => true;
+        return client;
+      };
+    }
+  }
   static final ApiClient instance = ApiClient._();
 
   final _dio = Dio(BaseOptions(

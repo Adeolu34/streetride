@@ -5,18 +5,27 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/ride_api.dart';
 import '../../../core/models/ride_model.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/driver_avatar.dart';
 import '../providers/ride_provider.dart';
 
 class DriverOffersScreen extends ConsumerStatefulWidget {
   final String from;
   final String to;
   final List<String> reqIds;
+  final double? fromLat;
+  final double? fromLng;
+  final double? toLat;
+  final double? toLng;
 
   const DriverOffersScreen({
     super.key,
     required this.from,
     required this.to,
     this.reqIds = const [],
+    this.fromLat,
+    this.fromLng,
+    this.toLat,
+    this.toLng,
   });
 
   @override
@@ -27,6 +36,8 @@ class _DriverOffersScreenState extends ConsumerState<DriverOffersScreen> {
   int _secondsLeft = 42;
   Timer? _timer;
   final Set<String> _declinedReqIds = {};
+  final Map<String, String> _driverImages = {};
+  final Set<String> _fetchingPhones = {};
 
   @override
   void initState() {
@@ -54,21 +65,44 @@ class _DriverOffersScreenState extends ConsumerState<DriverOffersScreen> {
     await RideApi.instance.acceptPrice(ride.reqId);
     ref.read(rideProvider.notifier).stopPolling();
     if (!mounted) return;
+    final fLat = double.tryParse(ride.fromLat) ?? widget.fromLat;
+    final fLng = double.tryParse(ride.fromLng) ?? widget.fromLng;
+    final tLat = double.tryParse(ride.toLat) ?? widget.toLat;
+    final tLng = double.tryParse(ride.toLng) ?? widget.toLng;
     context.push('/live-tracking', extra: {
       'driverName': ride.driverName.isNotEmpty ? ride.driverName : 'Driver',
       'driverInitials': _initials(ride.driverName),
+      'driverPhotoUrl': _driverImages[ride.driverPhone] ?? '',
       'car': ride.vehicleType.isNotEmpty ? ride.vehicleType : '—',
       'rating': 0.0,
       'price': _parsePrice(ride.priceByDriver),
       'from': widget.from,
       'to': widget.to,
       'reqId': ride.reqId,
+      'fromLat': fLat,
+      'fromLng': fLng,
+      'toLat': tLat,
+      'toLng': tLng,
     });
   }
 
   Future<void> _decline(RideMessage ride) async {
     setState(() => _declinedReqIds.add(ride.reqId));
     await RideApi.instance.rejectPrice(ride.reqId);
+  }
+
+  Future<void> _fetchDriverImage(String phone) async {
+    if (phone.isEmpty || _fetchingPhones.contains(phone)) return;
+    _fetchingPhones.add(phone);
+    try {
+      final data = await RideApi.instance.getUserDetail(phone);
+      final profile = data['Data'] as Map<String, dynamic>?;
+      if (profile == null) return;
+      final url = (profile['Image'] ?? profile['Photo'] ?? '').toString();
+      if (url.isNotEmpty && mounted) {
+        setState(() => _driverImages[phone] = url);
+      }
+    } catch (_) {}
   }
 
   static String _initials(String name) {
@@ -83,6 +117,12 @@ class _DriverOffersScreenState extends ConsumerState<DriverOffersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<RideState>(rideProvider, (_, next) {
+      for (final m in next.messages) {
+        if (m.driverPhone.isNotEmpty) _fetchDriverImage(m.driverPhone);
+      }
+    });
+
     final messages = ref.watch(rideProvider).messages;
 
     // All offers (priceByDriver set) — include declined for the greyed-out view
@@ -183,6 +223,7 @@ class _DriverOffersScreenState extends ConsumerState<DriverOffersScreen> {
                         final isBest = price == bestPrice && bestPrice > 0;
                         return _OfferCard(
                           initials: _initials(m.driverName),
+                          photoUrl: _driverImages[m.driverPhone],
                           name: m.driverName.isNotEmpty ? m.driverName : 'Driver',
                           car: m.vehicleType.isNotEmpty ? m.vehicleType : '—',
                           price: price,
@@ -218,6 +259,7 @@ class _DriverOffersScreenState extends ConsumerState<DriverOffersScreen> {
 
 class _OfferCard extends StatelessWidget {
   final String initials;
+  final String? photoUrl;
   final String name;
   final String car;
   final int price;
@@ -227,6 +269,7 @@ class _OfferCard extends StatelessWidget {
 
   const _OfferCard({
     required this.initials,
+    this.photoUrl,
     required this.name,
     required this.car,
     required this.price,
@@ -261,23 +304,11 @@ class _OfferCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                      color: SRColors.purple700,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        initials,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
+                  DriverAvatar(
+                    initials: initials,
+                    photoUrl: photoUrl,
+                    size: 40,
+                    fontSize: 13,
                   ),
                   const SizedBox(width: 10),
                   Expanded(

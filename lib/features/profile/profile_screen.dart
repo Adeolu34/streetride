@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/session_service.dart';
 import '../../core/services/background_poll_service.dart';
+import '../../core/services/engagement_service.dart';
 import '../../core/api/ride_api.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   int _walletBalance = 0;
   int _totalTrips = 0;
+  int _streak = 0;
 
   @override
   void initState() {
@@ -43,6 +45,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final total = histRes['TotalTransactions'] ?? 0;
       if (mounted) setState(() => _totalTrips = int.tryParse(total.toString()) ?? 0);
     } catch (_) {}
+
+    final streak = await EngagementService.instance.getStreak();
+    if (mounted) setState(() => _streak = streak);
   }
 
   String _fmtBalance(int n) {
@@ -534,7 +539,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onEdit: _openEditSheet,
             ),
             const SizedBox(height: 16),
-            _StatsRow(walletBalance: _fmtBalance(_walletBalance), totalTrips: _totalTrips),
+            _StatsRow(walletBalance: _fmtBalance(_walletBalance), totalTrips: _totalTrips, streak: _streak),
+            const SizedBox(height: 16),
+            _ModeSwitchSection(profile: profile),
             const SizedBox(height: 20),
             _MenuSection(
               title: 'Account',
@@ -542,12 +549,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _MenuItem(
                   icon: Icons.credit_card_rounded,
                   label: 'Payment methods',
-                  onTap: () {},
+                  onTap: () => context.push('/payment-methods'),
                 ),
                 _MenuItem(
                   icon: Icons.bookmark_rounded,
                   label: 'Saved places',
-                  onTap: () {},
+                  onTap: () => context.push('/saved-places'),
+                ),
+                _MenuItem(
+                  icon: Icons.notifications_rounded,
+                  label: 'Notifications',
+                  onTap: () => context.push('/notifications'),
                 ),
                 _MenuItem(
                   icon: Icons.language_rounded,
@@ -563,7 +575,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _MenuItem(
                   icon: Icons.help_outline_rounded,
                   label: 'Help & FAQ',
-                  onTap: () {},
+                  onTap: () => context.push('/help-faq'),
                 ),
                 _MenuItem(
                   icon: Icons.health_and_safety_rounded,
@@ -573,7 +585,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _MenuItem(
                   icon: Icons.info_outline_rounded,
                   label: 'About StreetRide',
-                  onTap: () {},
+                  onTap: () => context.push('/about'),
                 ),
               ],
             ),
@@ -743,10 +755,12 @@ class _ProfileHeader extends StatelessWidget {
 class _StatsRow extends StatelessWidget {
   final String walletBalance;
   final int totalTrips;
-  const _StatsRow({required this.walletBalance, required this.totalTrips});
+  final int streak;
+  const _StatsRow({required this.walletBalance, required this.totalTrips, this.streak = 0});
 
   @override
   Widget build(BuildContext context) {
+    final streakLabel = streak >= 2 ? '🔥 $streak days' : streak == 1 ? '1 day' : '—';
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 18),
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -761,7 +775,7 @@ class _StatsRow extends StatelessWidget {
           _StatDivider(),
           _Stat(label: 'Wallet', value: '₦$walletBalance'),
           _StatDivider(),
-          const _Stat(label: 'Plus', value: 'Active'),
+          _Stat(label: 'Streak', value: streakLabel),
         ],
       ),
     );
@@ -892,6 +906,256 @@ class _MenuItem {
   final String label;
   final VoidCallback onTap;
   const _MenuItem({required this.icon, required this.label, required this.onTap});
+}
+
+class _ModeSwitchSection extends StatelessWidget {
+  final dynamic profile;
+  const _ModeSwitchSection({required this.profile});
+
+  Future<void> _switchTo(BuildContext context, bool toDriver) async {
+    await SessionService.instance.switchMode(toDriver);
+    BackgroundPollService.stop();
+    await BackgroundPollService.start();
+    if (context.mounted) {
+      context.go(toDriver ? '/driver-home' : '/home');
+    }
+  }
+
+  void _showBecomeDriverSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: SRColors.amber100,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(Icons.drive_eta_rounded, color: SRColors.amber600, size: 26),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Drive with StreetRide',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: SRColors.ink900),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Earn money by giving rides. You set your own price for every trip — no commission cuts.',
+              style: TextStyle(fontSize: 14, color: SRColors.ink500, height: 1.5),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  context.push('/signup?driver=true');
+                },
+                child: const Text('Sign up as a Driver'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Not now'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = SessionService.instance;
+    final isDriverMode = session.isDriver;
+    final hasDriverAccount = profile?.isDriver == true;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isDriverMode
+                ? [const Color(0xFFFFF3CD), const Color(0xFFFFE082)]
+                : [const Color(0xFFEDE7F6), const Color(0xFFD1C4E9)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: (isDriverMode ? SRColors.amber500 : SRColors.purple700)
+                  .withValues(alpha: 0.18),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: Row(
+                children: [
+                  Icon(
+                    isDriverMode ? Icons.drive_eta_rounded : Icons.person_rounded,
+                    size: 16,
+                    color: isDriverMode ? SRColors.amber600 : SRColors.purple700,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isDriverMode ? "You're driving" : "You're riding",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDriverMode ? SRColors.amber600 : SRColors.purple700,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Switch mode',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: isDriverMode ? SRColors.amber600 : SRColors.purple700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: isDriverMode ? () => _switchTo(context, false) : null,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: !isDriverMode ? SRColors.purple700 : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: !isDriverMode
+                                ? [
+                                    BoxShadow(
+                                      color: SRColors.purple700.withValues(alpha: 0.35),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    )
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.person_rounded, size: 18,
+                                  color: !isDriverMode ? Colors.white : SRColors.ink500),
+                              const SizedBox(width: 7),
+                              Text(
+                                'Rider',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: !isDriverMode ? Colors.white : SRColors.ink500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: !isDriverMode
+                            ? (hasDriverAccount
+                                ? () => _switchTo(context, true)
+                                : () => _showBecomeDriverSheet(context))
+                            : null,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: isDriverMode ? SRColors.amber500 : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: isDriverMode
+                                ? [
+                                    BoxShadow(
+                                      color: SRColors.amber500.withValues(alpha: 0.35),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    )
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.drive_eta_rounded, size: 18,
+                                  color: isDriverMode ? Colors.white : SRColors.ink500),
+                              const SizedBox(width: 7),
+                              Text(
+                                'Driver',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDriverMode ? Colors.white : SRColors.ink500,
+                                ),
+                              ),
+                              if (!hasDriverAccount && !isDriverMode) ...[
+                                const SizedBox(width: 5),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: SRColors.amber100,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'New',
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: SRColors.amber600),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EditField extends StatelessWidget {

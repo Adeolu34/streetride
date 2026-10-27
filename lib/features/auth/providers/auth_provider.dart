@@ -146,9 +146,64 @@ class AuthNotifier extends Notifier<AuthState> {
       return const AuthResult();
     } catch (e) {
       state = const AuthState();
-      return AuthResult(error: 'Verification failed. Please try again.');
+      return const AuthResult(error: 'Verification failed. Please try again.');
+    }
+  }
+
+  Future<AuthResult> requestPasswordResetOtp({required String phone}) async {
+    state = const AuthState(isLoading: true);
+    try {
+      final data = await AuthApi.instance.requestOtp(phone: phone);
+      final ok = data['Success'] == true ||
+          data['success'] == true ||
+          data['Status'] == true ||
+          data['status'] == true;
+      state = const AuthState();
+      if (!ok) {
+        return AuthResult(
+          error: data['message']?.toString() ??
+              data['Message']?.toString() ??
+              'Failed to send reset code. Please check your number.',
+        );
+      }
+      return const AuthResult();
+    } catch (e) {
+      state = const AuthState();
+      return const AuthResult(error: 'Failed to send reset code. Check your network and try again.');
+    }
+  }
+
+  Future<AuthResult> resetPassword({
+    required String phone,
+    required String otp,
+    required String newPassword,
+  }) async {
+    state = const AuthState(isLoading: true);
+    try {
+      final data = await AuthApi.instance.resetPassword(
+        phone: phone,
+        otp: otp,
+        password: newPassword,
+      );
+      final ok = data['Success'] == true ||
+          data['success'] == true ||
+          data['Status'] == true ||
+          data['status'] == true;
+      state = const AuthState();
+      if (!ok) {
+        return AuthResult(
+          error: data['message']?.toString() ??
+              data['Message']?.toString() ??
+              'Password reset failed. Please check the code and try again.',
+        );
+      }
+      return const AuthResult();
+    } catch (e) {
+      state = const AuthState();
+      return const AuthResult(error: 'Connection error during password reset. Please try again.');
     }
   }
 }
 
 final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
+

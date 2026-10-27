@@ -15,6 +15,7 @@ class UserProfile {
   final String vModel;
   final String vYear;
   final String vColor;
+  final String vPlate;
 
   const UserProfile({
     required this.phone,
@@ -33,6 +34,7 @@ class UserProfile {
     this.vModel = '',
     this.vYear = '',
     this.vColor = '',
+    this.vPlate = '',
   });
 
   String get fullName => '$firstName $surname'.trim();
@@ -65,6 +67,7 @@ class UserProfile {
       vModel: (json['VModel'] ?? json['vmodel'] ?? '').toString(),
       vYear: (json['VYear'] ?? json['vyear'] ?? '').toString(),
       vColor: (json['VColor'] ?? json['vcolor'] ?? '').toString(),
+      vPlate: (json['vplate'] ?? json['VPlate'] ?? '').toString(),
     );
   }
 
@@ -81,6 +84,7 @@ class UserProfile {
     String? vModel,
     String? vYear,
     String? vColor,
+    String? vPlate,
   }) =>
       UserProfile(
         phone: phone ?? this.phone,
@@ -99,6 +103,7 @@ class UserProfile {
         vModel: vModel ?? this.vModel,
         vYear: vYear ?? this.vYear,
         vColor: vColor ?? this.vColor,
+        vPlate: vPlate ?? this.vPlate,
       );
 
   Map<String, dynamic> toJson() => {
@@ -118,5 +123,6 @@ class UserProfile {
         'VModel': vModel,
         'VYear': vYear,
         'VColor': vColor,
+        'vplate': vPlate,
       };
 }

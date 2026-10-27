@@ -6,12 +6,16 @@ class RecentPlace {
   final String secondaryAddr;
   final String fullAddress;
   final String placeId;
+  final double? lat;
+  final double? lng;
 
   const RecentPlace({
     required this.primaryName,
     required this.secondaryAddr,
     required this.fullAddress,
     this.placeId = '',
+    this.lat,
+    this.lng,
   });
 
   Map<String, dynamic> toJson() => {
@@ -19,6 +23,8 @@ class RecentPlace {
         'secondaryAddr': secondaryAddr,
         'fullAddress': fullAddress,
         'placeId': placeId,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
       };
 
   factory RecentPlace.fromJson(Map<String, dynamic> j) => RecentPlace(
@@ -26,6 +32,8 @@ class RecentPlace {
         secondaryAddr: j['secondaryAddr']?.toString() ?? '',
         fullAddress: j['fullAddress']?.toString() ?? '',
         placeId: j['placeId']?.toString() ?? '',
+        lat: (j['lat'] as num?)?.toDouble(),
+        lng: (j['lng'] as num?)?.toDouble(),
       );
 }
 

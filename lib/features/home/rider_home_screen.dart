@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/services/background_poll_service.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/engagement_service.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/permission_setup_sheet.dart';
 import '../../core/services/session_service.dart';
 import '../../core/widgets/ride_notification_overlay.dart';
+import '../../core/widgets/mascot_greeting.dart';
+import '../../core/widgets/onboarding_tour.dart';
 import '../booking/providers/ride_provider.dart';
 import '../../core/models/ride_model.dart';
 import '../wallet/wallet_screen.dart';
@@ -15,6 +17,7 @@ import '../trips/trips_screen.dart';
 import 'widgets/home_header.dart';
 import 'widgets/active_offer_card.dart';
 import 'widgets/nearby_map_card.dart';
+import '../../core/services/saved_places_service.dart';
 
 class RiderHomeScreen extends ConsumerStatefulWidget {
   const RiderHomeScreen({super.key});
@@ -41,9 +44,7 @@ class _RiderHomeScreenState extends ConsumerState<RiderHomeScreen>
     Future.microtask(() async {
       await BackgroundPollService.start();
       ref.read(rideProvider.notifier).poll();
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) PermissionSetupSheet.showIfNeeded(context);
+      await EngagementService.instance.recordAppOpen();
     });
   }
 
@@ -66,8 +67,14 @@ class _RiderHomeScreenState extends ConsumerState<RiderHomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: SRColors.lavenderBg,
-      body: RideNotificationOverlay(
-        child: IndexedStack(index: _tab, children: _tabs),
+      body: Stack(
+        children: [
+          RideNotificationOverlay(
+            child: IndexedStack(index: _tab, children: _tabs),
+          ),
+          const MascotGreeting(),
+          const OnboardingTour(),
+        ],
       ),
       bottomNavigationBar: _BottomNav(
         current: _tab,
@@ -77,29 +84,72 @@ class _RiderHomeScreenState extends ConsumerState<RiderHomeScreen>
   }
 }
 
-class _HomeTab extends ConsumerWidget {
+class _HomeTab extends ConsumerStatefulWidget {
   const _HomeTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends ConsumerState<_HomeTab>
+    with SingleTickerProviderStateMixin {
+  String? _lastDest;
+  int _streak = 0;
+  late final AnimationController _pulseCtrl;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _pulse = Tween(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+    );
+    _loadEngagement();
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadEngagement() async {
+    final dest = await EngagementService.instance.getLastDestination();
+    final streak = await EngagementService.instance.getStreak();
+    if (mounted) setState(() { _lastDest = dest; _streak = streak; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final session = SessionService.instance;
     final rideState = ref.watch(rideProvider);
+    final hasActiveRide = rideState.activeRide != null || rideState.pendingRides.isNotEmpty;
 
     final bookingCard = GestureDetector(
       onTap: () => context.push('/search'),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: SRColors.purple700.withValues(alpha: 0.14),
-              blurRadius: 28,
-              offset: const Offset(0, 12),
-            ),
-          ],
+      child: AnimatedBuilder(
+        animation: _pulse,
+        builder: (_, child) => Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: SRColors.purple700.withValues(
+                  alpha: hasActiveRide ? 0.14 : 0.08 + _pulse.value * 0.12,
+                ),
+                blurRadius: hasActiveRide ? 28 : 18 + _pulse.value * 14,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(14),
+          child: child,
         ),
-        padding: const EdgeInsets.all(14),
         child: Column(
           children: [
             Row(
@@ -141,26 +191,71 @@ class _HomeTab extends ConsumerWidget {
             ),
             const Divider(
                 height: 22, color: SRColors.lavenderBg, thickness: 1),
-            Row(
-              children: [
-                _QuickChip(
-                  icon: Icons.home_rounded,
-                  label: 'Home',
-                  onTap: () => context.push('/search'),
-                ),
-                const SizedBox(width: 8),
-                _QuickChip(
-                  icon: Icons.work_rounded,
-                  label: 'Work',
-                  onTap: () => context.push('/search'),
-                ),
-                const SizedBox(width: 8),
-                _QuickChip(
-                  icon: Icons.flight_rounded,
-                  label: 'Airport',
-                  onTap: () => context.push('/search'),
-                ),
-              ],
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  if (_lastDest != null) ...[
+                    _QuickChip(
+                      icon: Icons.history_rounded,
+                      label: _lastDest!.length > 20
+                          ? '${_lastDest!.substring(0, 18)}…'
+                          : _lastDest!,
+                      highlight: true,
+                      onTap: () => context.push('/search',
+                          extra: {'to': _lastDest}),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  _QuickChip(
+                    icon: Icons.home_rounded,
+                    label: 'Home',
+                    onTap: () async {
+                      final home = await SavedPlacesService.getHome();
+                      if (context.mounted) {
+                        if (home != null && home.address.isNotEmpty) {
+                          context.push('/search', extra: {
+                            'to': home.address,
+                            'toLat': home.lat,
+                            'toLng': home.lng,
+                          });
+                        } else {
+                          context.push('/saved-places');
+                        }
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  _QuickChip(
+                    icon: Icons.work_rounded,
+                    label: 'Work',
+                    onTap: () async {
+                      final work = await SavedPlacesService.getWork();
+                      if (context.mounted) {
+                        if (work != null && work.address.isNotEmpty) {
+                          context.push('/search', extra: {
+                            'to': work.address,
+                            'toLat': work.lat,
+                            'toLng': work.lng,
+                          });
+                        } else {
+                          context.push('/saved-places');
+                        }
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  _QuickChip(
+                    icon: Icons.flight_rounded,
+                    label: 'Airport',
+                    onTap: () => context.push('/search', extra: {
+                      'to': 'Murtala Muhammed International Airport, Ikeja',
+                      'toLat': 6.57025,
+                      'toLng': 3.32142,
+                    }),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -169,7 +264,7 @@ class _HomeTab extends ConsumerWidget {
 
     return Column(
       children: [
-        HomeHeader(profile: session.profile, bookingCard: bookingCard),
+        HomeHeader(profile: session.profile, bookingCard: bookingCard, streak: _streak),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.only(bottom: 24),
@@ -263,11 +358,13 @@ class _QuickChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool highlight;
 
   const _QuickChip({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.highlight = false,
   });
 
   @override
@@ -277,8 +374,11 @@ class _QuickChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         decoration: BoxDecoration(
-          color: SRColors.surfaceAlt,
+          color: highlight ? SRColors.purple100 : SRColors.surfaceAlt,
           borderRadius: BorderRadius.circular(99),
+          border: highlight
+              ? Border.all(color: SRColors.purple700.withValues(alpha: 0.3), width: 1)
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -287,10 +387,10 @@ class _QuickChip extends StatelessWidget {
             const SizedBox(width: 5),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: SRColors.ink700,
+                color: highlight ? SRColors.purple700 : SRColors.ink700,
               ),
             ),
           ],
@@ -679,56 +779,154 @@ class _PendingRidesCardState extends State<_PendingRidesCard>
   }
 }
 
-class _PromoBanner extends StatelessWidget {
+class _PromoBanner extends StatefulWidget {
+  @override
+  State<_PromoBanner> createState() => _PromoBannerState();
+}
+
+class _PromoBannerState extends State<_PromoBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+  late final Animation<double> _float;
+  late final Animation<double> _glow;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 2200))
+      ..repeat(reverse: true);
+    _float = Tween(begin: -5.0, end: 5.0).animate(
+      CurvedAnimation(parent: _c, curve: Curves.easeInOut),
+    );
+    _glow = Tween(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _c, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: SRColors.indigo900,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: SRColors.amber500.withValues(alpha: 0.18),
-              shape: BoxShape.circle,
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) => Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+        decoration: BoxDecoration(
+          color: SRColors.indigo900,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: SRColors.purple700.withValues(alpha: 0.12 + _glow.value * 0.12),
+              blurRadius: 16 + _glow.value * 10,
+              offset: const Offset(0, 4),
             ),
-            child: const Icon(Icons.bolt_rounded,
-                color: SRColors.amber500, size: 28),
-          ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Ready to ride?',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+          ],
+        ),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Ready to ride?',
+                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
                   ),
-                ),
-                SizedBox(height: 3),
-                Text(
-                  'Tap "Where to?" above to book your next trip.',
-                  style: TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    height: 1.4,
+                  SizedBox(height: 3),
+                  Text(
+                    'Tap "Where to?" above to book your next trip.',
+                    style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+            // Floating cartoon car
+            Transform.translate(
+              offset: Offset(0, _float.value),
+              child: Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  // Shadow that shrinks when car rises
+                  Positioned(
+                    bottom: 0,
+                    child: Container(
+                      width: 56 * (0.7 + (_float.value + 5) / 20),
+                      height: 6,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(99),
+                        color: Colors.black.withValues(alpha: 0.15 + (5 - _float.value) / 60),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: SizedBox(
+                      width: 86,
+                      height: 56,
+                      child: CustomPaint(painter: _MiniCarPainter()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _MiniCarPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height * 0.72;
+
+    // Wheels
+    for (final wx in [cx - 18.0, cx + 18.0]) {
+      canvas.drawCircle(Offset(wx, cy + 2), 7,
+          Paint()..color = const Color(0xFF2D2D3A));
+      canvas.drawCircle(Offset(wx, cy + 2), 3.5,
+          Paint()..color = const Color(0xFF9090A0));
+    }
+    // Body
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(cx - 28, cy - 13, cx + 28, cy + 2),
+        const Radius.circular(5),
+      ),
+      Paint()..color = SRColors.purple600,
+    );
+    // Roof
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(cx - 18, cy - 26, cx + 18, cy - 10),
+        const Radius.circular(8),
+      ),
+      Paint()..color = SRColors.purple700,
+    );
+    // Windows
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTRB(cx - 15, cy - 24, cx - 3, cy - 13),
+          const Radius.circular(3)),
+      Paint()..color = const Color(0xFFB8E8FF).withValues(alpha: 0.85),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTRB(cx + 3, cy - 24, cx + 15, cy - 13),
+          const Radius.circular(3)),
+      Paint()..color = const Color(0xFFB8E8FF).withValues(alpha: 0.85),
+    );
+    // Headlight
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTRB(cx + 22, cy - 8, cx + 30, cy - 4),
+          const Radius.circular(2)),
+      Paint()..color = SRColors.amber300,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MiniCarPainter _) => false;
 }
 
 class _BottomNav extends StatelessWidget {
@@ -746,45 +944,63 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewPadding.bottom > mediaQuery.padding.bottom
+        ? mediaQuery.viewPadding.bottom
+        : mediaQuery.padding.bottom;
+    final effectiveBottom = bottomInset > 0 ? bottomInset + 4 : 14.0;
+
     return Container(
-      height: 64 + MediaQuery.of(context).padding.bottom,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: SRColors.border)),
+        border: const Border(top: BorderSide(color: SRColors.border)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, -3),
+          ),
+        ],
       ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: List.generate(_items.length, (i) {
-            final item = _items[i];
-            final active = i == current;
-            return Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => onTap(i),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
+      padding: EdgeInsets.only(top: 8, bottom: effectiveBottom),
+      child: Row(
+        children: List.generate(_items.length, (i) {
+          final item = _items[i];
+          final active = i == current;
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onTap(i),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: active ? SRColors.purple100 : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
                       active ? item.$1 : item.$2,
-                      color: active ? SRColors.purple700 : SRColors.ink500.withValues(alpha: 0.6),
+                      color: active ? SRColors.purple700 : SRColors.ink500.withValues(alpha: 0.7),
                       size: 24,
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      item.$3,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                        color: active ? SRColors.purple700 : SRColors.ink500.withValues(alpha: 0.6),
-                      ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    item.$3,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? SRColors.purple700 : SRColors.ink500.withValues(alpha: 0.7),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-          }),
-        ),
+            ),
+          );
+        }),
       ),
     );
   }
